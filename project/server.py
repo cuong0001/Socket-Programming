@@ -1,17 +1,18 @@
+import hashlib
 import os
 import socket
 import sys
 import common
 
-# python server.py 127.0.0.1 9000
+# python server.py 9000  [host]
 
-# If the command line includes host's ip address then use it
-# Otherwise default to loopback address 127.0.0.1
-HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+# Port is the first argument -- the assignment launches the server as
+# `python server.py <port>`. Default to 9000 when omitted.
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9000
 
-# If the command line includes port then use it
-# Otherwise default to port 9000
-PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 9000
+# Optional host override as the second argument. Default "" binds every
+# interface (INADDR_ANY), so the client can reach it on 127.0.0.1.
+HOST = sys.argv[2] if len(sys.argv) > 2 else ""
 
 # storage/ sits next to server.py so the server works no matter
 # which directory it is launched from
@@ -50,7 +51,7 @@ def handle_list(conn):
 
 
 def handle_upload(conn, size, name):
-    """OK -> receive data frames until `size` bytes -> ACK <size>."""
+    """OK -> receive data frames until `size` bytes -> ACK sha256 <digest>."""
     path = os.path.join(STORAGE_DIR, name)
     try:
         f = open(path, "wb")
@@ -59,6 +60,8 @@ def handle_upload(conn, size, name):
         return
 
     received = 0
+    # Hash incrementally as bytes arrive -- never re-read the file (R1.3).
+    hasher = hashlib.sha256()
     try:
         with f:
             common.send_frame(conn, b"OK")  # ready to receive
@@ -74,6 +77,7 @@ def handle_upload(conn, size, name):
                         f"client declared {size} bytes but sent more"
                     )
                 f.write(data)
+                hasher.update(data)
                 received += len(data)
     except BaseException:
         # Half-written upload: delete it so LIST never shows a broken file
@@ -83,11 +87,13 @@ def handle_upload(conn, size, name):
             pass
         raise
 
-    common.send_frame(conn, f"ACK {received}".encode("utf8"))
+    # Terminal frame: our digest of the stored bytes. The client compares it
+    # against the digest it computed while sending -> SHA256 OK / MISMATCH.
+    common.send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf8"))
 
 
 def handle_download(conn, name):
-    """OK <size> -> send the file as 4096-byte data frames."""
+    """OK <size> -> send file as 4096-byte data frames -> ACK sha256 <digest>."""
     path = os.path.join(STORAGE_DIR, name)
     if not os.path.isfile(path):
         common.send_frame(conn, b"ERR no such file")
@@ -97,6 +103,8 @@ def handle_download(conn, name):
     common.send_frame(conn, f"OK {size}".encode("utf8"))
 
     remaining = size
+    # Hash incrementally as bytes leave -- never re-read the file (R1.3).
+    hasher = hashlib.sha256()
     with open(path, "rb") as f:
         while remaining > 0:
             chunk = f.read(min(CHUNK_SIZE, remaining))
@@ -105,7 +113,12 @@ def handle_download(conn, name):
                 # one of them; short delivery would desync the stream
                 raise FatalSessionError(f"{name} shrank while sending")
             common.send_frame(conn, chunk)
+            hasher.update(chunk)
             remaining -= len(chunk)
+
+    # Terminal frame: the client reads exactly `size` bytes, then this digest
+    # to verify the download -> SHA256 OK / MISMATCH.
+    common.send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf8"))
 
 
 def dispatch(conn, command):
@@ -174,7 +187,7 @@ try:
     server.bind((HOST, PORT))
     server.listen(5)
     server.settimeout(1.0)  # wake up every 1s so Ctrl+C can be handled on Windows
-    print(f"[OK] Server listening on {HOST}:{PORT}")
+    print(f"[OK] Server listening on {HOST or '0.0.0.0'}:{PORT}")
 
     while True:
         try:
