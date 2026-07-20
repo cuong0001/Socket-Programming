@@ -1,9 +1,17 @@
+"""Phase 1 protocol contract.
+
+Each frame = 8-byte big-endian payload length + payload.
+UTF-8 commands: LIST | UPLOAD <size> <filename> | DOWNLOAD <filename>.
+Responses: OK ... | ACK sha256 <digest> | ERR <message>.
+File data is sent in frames using chunks of 4096 bytes.
+"""
+
 import socket
 import struct
 
 
 def recv_exact(sock: socket.socket, n: int) -> bytes:
-    """Nhận đúng n byte từ socket."""
+    """Receive exactly n bytes from the socket."""
     data = bytearray()
 
     while len(data) < n:
@@ -20,7 +28,7 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
 
 
 def read_frame(sock: socket.socket) -> bytes:
-    """Nhận một frame gồm 8 byte độ dài và phần nội dung."""
+    """Receive a frame containing an 8-byte length and its payload."""
     (length,) = struct.unpack("!Q", recv_exact(sock, 8))
 
     if length > 1 << 20:
@@ -30,5 +38,5 @@ def read_frame(sock: socket.socket) -> bytes:
 
 
 def send_frame(sock: socket.socket, payload: bytes) -> None:
-    """Gửi một frame gồm 8 byte độ dài và phần nội dung."""
+    """Send a frame containing an 8-byte length and its payload."""
     sock.sendall(struct.pack("!Q", len(payload)) + payload)
