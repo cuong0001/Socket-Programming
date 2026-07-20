@@ -66,8 +66,10 @@ def process_command(client, cmd):
                 print(f"[ERROR] MISMATCH")
                 print(f"  -> Local Hash : {local_digest}")  
                 print(f"  -> Server Hash: {server_digest}")  
+                sys.exit(1) 
         else:
             print(f"[ERROR] Invalid response from server")
+            sys.exit(1)
         return True
         
     elif cmd.upper().startswith("DOWNLOAD"):
@@ -91,7 +93,9 @@ def process_command(client, cmd):
 
         # Extract file size from server's OK response (e.g., "OK 1024")
         size = int(reply.split()[1])
-        local_path = "dl_" + filename
+        downloads_dir = "downloads"
+        os.makedirs(downloads_dir, exist_ok=True)
+        local_path = os.path.join(downloads_dir, filename)
         received = 0
         hasher = hashlib.sha256()
 
@@ -110,12 +114,12 @@ def process_command(client, cmd):
             print(f"[OK] Downloaded {filename} ({received} bytes). Verifying SHA256...")
             
             # Receive final ACK frame containing server's SHA256 digest
-            reply_bytes = common.read_frame(client).decode("utf8")
+            reply = common.read_frame(client).decode("utf8")
             local_digest = hasher.hexdigest()
             
             # Ensure server replied with a valid SHA256 format before parsing
-            if reply_bytes.startswith("ACK sha256 "):
-                server_digest = reply_bytes.split(" ")[2].strip()
+            if reply.startswith("ACK sha256 "):
+                server_digest = reply.split(" ")[2].strip()
                 
                 # Compare the local hash with the server's hash
                 if local_digest == server_digest:
@@ -124,8 +128,13 @@ def process_command(client, cmd):
                     print(f"[ERROR] MISMATCH")
                     print(f"  -> Local Hash : {local_digest}")  
                     print(f"  -> Server Hash: {server_digest}") 
+                    os.remove(local_path)
+                    sys.exit(1)
+
             else:
-                print(f"[ERROR] Invalid response from server: {reply_bytes}")
+                print(f"[ERROR] Invalid response from server: {reply}")
+                os.remove(local_path)
+                sys.exit(1)
         else:
             print(f"[ERROR] Incomplete data received ({received}/{size} bytes)")
         return True
