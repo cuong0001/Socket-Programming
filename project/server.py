@@ -16,9 +16,12 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9000
 # interface (INADDR_ANY), so the client can reach it on 127.0.0.1.
 HOST = sys.argv[2] if len(sys.argv) > 2 else ""
 
-# storage/ and logs/ sit next to server.py so the server works no matter
-# which directory it is launched from
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# storage/ and logs/ live under the current working directory, resolved once
+# at startup. Anchoring them to where the server is launched (not to server.py)
+# lets the test harness isolate each run in its own temp dir and keeps test
+# uploads/logs out of the real project tree. Launch from project/ for the
+# normal layout; the storage path is printed at startup so it's never a guess.
+BASE_DIR = os.getcwd()
 STORAGE_DIR = os.path.join(BASE_DIR, "storage")
 LOG_FILE = os.path.join(BASE_DIR, "logs", "server.log")
 
@@ -206,6 +209,7 @@ try:
     server.listen(5)
     server.settimeout(1.0)  # wake up every 1s so Ctrl+C can be handled on Windows
     print(f"[OK] Server listening on {HOST or '0.0.0.0'}:{PORT}")
+    print(f"[OK] Storage dir: {STORAGE_DIR}")
 
     while True:
         try:
