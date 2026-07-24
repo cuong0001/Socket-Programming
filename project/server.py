@@ -31,6 +31,11 @@ logger = Logger(LOG_FILE)
 
 CHUNK_SIZE = 4096
 
+# Incoming uploads are staged under this suffix and only renamed onto the
+# real name once every declared byte has arrived. Reserved: clients may not
+# use it (see valid_filename) and LIST never advertises it.
+PART_SUFFIX = ".part"
+
 # Anything that could steer a path outside storage/ (path traversal):
 # separators, parent-dir hops, Windows drive/stream syntax
 FORBIDDEN_PARTS = ("/", "\\", "..", ":")
@@ -44,13 +49,30 @@ class FatalSessionError(Exception):
 def valid_filename(name):
     if not name:
         return False
+    if name.endswith(PART_SUFFIX):
+        # Reserved for upload staging. A client-owned "x.part" would collide
+        # with the staging file and then be hidden by LIST -- a file nobody
+        # can see. Refuse it up front instead.
+        return False
     return not any(part in name for part in FORBIDDEN_PARTS)
+
+
+def _discard(path):
+    """Remove a staging file, ignoring the case where it is already gone."""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def handle_list(conn):
     """Reply 'OK <count>' plus one 'size<TAB>name' line per stored file."""
     lines = []
     for entry in sorted(os.listdir(STORAGE_DIR)):
+        # An upload in progress (or one orphaned by a hard kill) is not a
+        # real file yet -- never advertise it
+        if entry.endswith(PART_SUFFIX):
+            continue
         path = os.path.join(STORAGE_DIR, entry)
         if os.path.isfile(path):
             lines.append(f"{os.path.getsize(path)}\t{entry}")
@@ -62,10 +84,17 @@ def handle_list(conn):
 
 
 def handle_upload(conn, ip, size, name):
-    """OK -> receive data frames until `size` bytes -> ACK sha256 <digest>."""
-    path = os.path.join(STORAGE_DIR, name)
+    """OK -> stream data frames into <name>.part until `size bytes` -> atomic commit -> ACK sha256 <digest>.
+
+    Bytes are staged in a .part file and only renamed onto the real name once
+    every declared byte has arrived. The destination is never opened while the
+    transfer is in flight, so an interrupted upload cannot damage an existing
+    file of the same name -- a failed upload is a no-op.
+    """
+    final_path = os.path.join(STORAGE_DIR, name)
+    part_path = final_path + PART_SUFFIX
     try:
-        f = open(path, "wb")
+        f = open(part_path, "wb")
     except OSError:
         common.send_frame(conn, f"ERR cannot open {name}".encode("utf8"))
         return
@@ -80,7 +109,7 @@ def handle_upload(conn, ip, size, name):
         with f:
             common.send_frame(conn, b"OK")  # ready to receive
 
-            # A 0-byte file runs this loop zero times and is ACKed right away
+            # A 0-byte file runs this loop zero times and is committed as-is
             while received < size:
                 data = common.read_frame(conn)
                 if not data:
@@ -94,12 +123,24 @@ def handle_upload(conn, ip, size, name):
                 hasher.update(data)
                 received += len(data)
     except BaseException:
-        # Half-written upload: delete it so LIST never shows a broken file
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        # Discard the staging file only. Any existing file under `name` was
+        # never opened, so it survives untouched.
+        _discard(part_path)
         raise
+
+    # Every declared byte arrived, and `with` has closed the file -- Windows
+    # cannot rename an open file. os.replace is atomic and overwrites: `name`
+    # flips straight from the old complete version to the new one, with no
+    # instant where it is missing or half-written.
+    try:
+        os.replace(part_path, final_path)
+    except OSError as e:
+        # The stream is still frame-aligned, so this is recoverable: report it
+        # and keep the session alive rather than dropping the connection.
+        _discard(part_path)
+        common.send_frame(conn, f"ERR cannot store {name}".encode("utf8"))
+        logger.error(ip, f"commit failed for {name}: {type(e).__name__}: {e}")
+        return
 
     duration = time.perf_counter() - started
 
