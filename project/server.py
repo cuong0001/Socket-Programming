@@ -2,7 +2,9 @@ import hashlib
 import os
 import socket
 import sys
+import time
 import common
+from logger import Logger
 
 # python server.py 9000  [host]
 
@@ -14,9 +16,18 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9000
 # interface (INADDR_ANY), so the client can reach it on 127.0.0.1.
 HOST = sys.argv[2] if len(sys.argv) > 2 else ""
 
-# storage/ sits next to server.py so the server works no matter
-# which directory it is launched from
-STORAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage")
+# storage/ and logs/ live under the current working directory, resolved once
+# at startup. Anchoring them to where the server is launched (not to server.py)
+# lets the test harness isolate each run in its own temp dir and keeps test
+# uploads/logs out of the real project tree. Launch from project/ for the
+# normal layout; the storage path is printed at startup so it's never a guess.
+BASE_DIR = os.getcwd()
+STORAGE_DIR = os.path.join(BASE_DIR, "storage")
+LOG_FILE = os.path.join(BASE_DIR, "logs", "server.log")
+
+# Session log (R1.4): every CONNECT/transfer/DISCONNECT line lands in
+# logs/server.log and is echoed to the console.
+logger = Logger(LOG_FILE)
 
 CHUNK_SIZE = 4096
 
@@ -50,7 +61,7 @@ def handle_list(conn):
     common.send_frame(conn, reply.encode("utf8"))
 
 
-def handle_upload(conn, size, name):
+def handle_upload(conn, ip, size, name):
     """OK -> receive data frames until `size` bytes -> ACK sha256 <digest>."""
     path = os.path.join(STORAGE_DIR, name)
     try:
@@ -62,6 +73,9 @@ def handle_upload(conn, size, name):
     received = 0
     # Hash incrementally as bytes arrive -- never re-read the file (R1.3).
     hasher = hashlib.sha256()
+    # perf_counter, not monotonic: Windows monotonic ticks in ~15.6ms steps,
+    # which reads 0.0s for small files and wrecks the KB/s column (R1.4).
+    started = time.perf_counter()
     try:
         with f:
             common.send_frame(conn, b"OK")  # ready to receive
@@ -87,12 +101,15 @@ def handle_upload(conn, size, name):
             pass
         raise
 
+    duration = time.perf_counter() - started
+
     # Terminal frame: our digest of the stored bytes. The client compares it
     # against the digest it computed while sending -> SHA256 OK / MISMATCH.
     common.send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf8"))
+    logger.transfer(ip, "UPLOAD", name, received, duration, "SHA256-OK")
 
 
-def handle_download(conn, name):
+def handle_download(conn, ip, name):
     """OK <size> -> send file as 4096-byte data frames -> ACK sha256 <digest>."""
     path = os.path.join(STORAGE_DIR, name)
     if not os.path.isfile(path):
@@ -105,6 +122,7 @@ def handle_download(conn, name):
     remaining = size
     # Hash incrementally as bytes leave -- never re-read the file (R1.3).
     hasher = hashlib.sha256()
+    started = time.perf_counter()
     with open(path, "rb") as f:
         while remaining > 0:
             chunk = f.read(min(CHUNK_SIZE, remaining))
@@ -116,12 +134,15 @@ def handle_download(conn, name):
             hasher.update(chunk)
             remaining -= len(chunk)
 
+    duration = time.perf_counter() - started
+
     # Terminal frame: the client reads exactly `size` bytes, then this digest
     # to verify the download -> SHA256 OK / MISMATCH.
     common.send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf8"))
+    logger.transfer(ip, "DOWNLOAD", name, size, duration, "SHA256-OK")
 
 
-def dispatch(conn, command):
+def dispatch(conn, ip, command):
     if command == "LIST":
         handle_list(conn)
         return
@@ -141,7 +162,7 @@ def dispatch(conn, command):
         elif not valid_filename(name):
             common.send_frame(conn, b"ERR bad filename")
         else:
-            handle_upload(conn, size, name)
+            handle_upload(conn, ip, size, name)
         return
 
     # DOWNLOAD <filename>
@@ -150,7 +171,7 @@ def dispatch(conn, command):
         if not valid_filename(name):
             common.send_frame(conn, b"ERR bad filename")
         else:
-            handle_download(conn, name)
+            handle_download(conn, ip, name)
         return
 
     common.send_frame(conn, b"ERR bad command")
@@ -170,7 +191,7 @@ def serve_one(conn, addr):
             continue
 
         print(f"[INFO] {addr[0]}:{addr[1]} -> {command!r}")
-        dispatch(conn, command)
+        dispatch(conn, addr[0], command)
 
 
 # Windows consoles may use a legacy codepage (cp1252): printing Vietnamese
@@ -188,29 +209,32 @@ try:
     server.listen(5)
     server.settimeout(1.0)  # wake up every 1s so Ctrl+C can be handled on Windows
     print(f"[OK] Server listening on {HOST or '0.0.0.0'}:{PORT}")
+    print(f"[OK] Storage dir: {STORAGE_DIR}")
 
     while True:
         try:
             conn, addr = server.accept()
         except socket.timeout:
             continue  # no client yet; loop back and check for Ctrl+C
-        print(f"[INFO] Connection from {addr[0]}:{addr[1]}")
+        logger.connect(addr[0])
 
         try:
             serve_one(conn, addr)
-        except ConnectionError as e:
-            # Normal end of a session: the client closed (cleanly or not)
-            print(f"[INFO] Client disconnected: {e}")
+        except ConnectionError:
+            # Normal end of a session: the client closed (cleanly or not,
+            # including a kill mid-upload). The DISCONNECT line records it.
+            pass
         except FatalSessionError as e:
-            print(f"[ERROR] Protocol violation from {addr[0]}: {e}")
+            logger.error(addr[0], f"protocol violation: {e}")
         except Exception as e:
             # Last line of defence: no client behaviour may kill the server
-            print(f"[ERROR] Unexpected error: {type(e).__name__}: {e}")
+            logger.error(addr[0], f"internal error: {type(e).__name__}: {e}")
         finally:
             conn.close()
-            print("[INFO] Client connection closed")
+            logger.disconnect(addr[0])
 
 except KeyboardInterrupt:
     print("\n[INFO] Server shutting down")
 finally:
     server.close()
+    logger.close()
