@@ -96,48 +96,57 @@ def process_command(client, cmd):
         downloads_dir = "downloads"
         os.makedirs(downloads_dir, exist_ok=True)
         local_path = os.path.join(downloads_dir, filename)
+        part_path = local_path + ".part"
         received = 0
         hasher = hashlib.sha256()
 
+        try:
         # Open local file and receive data in chunks
-        with open(local_path, "wb") as f:
-            while received < size:
-                chunk = common.read_frame(client)
-                if not chunk:
-                    break
-                f.write(chunk)
-                hasher.update(chunk)
-                received += len(chunk)
+            with open(part_path, "wb") as f:
+                while received < size:
+                    chunk = common.read_frame(client)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    hasher.update(chunk)
+                    received += len(chunk)
 
-        # Verify transfer completeness
-        if received == size:
-            print(f"[OK] Downloaded {filename} ({received} bytes). Verifying SHA256...")
-            
-            # Receive final ACK frame containing server's SHA256 digest
-            reply = common.read_frame(client).decode("utf8")
-            local_digest = hasher.hexdigest()
-            
-            # Ensure server replied with a valid SHA256 format before parsing
-            if reply.startswith("ACK sha256 "):
-                server_digest = reply.split(" ")[2].strip()
+            # Verify transfer completeness
+            if received == size:
+                print(f"[OK] Downloaded {filename} ({received} bytes). Verifying SHA256...")
                 
-                # Compare the local hash with the server's hash
-                if local_digest == server_digest:
-                    print(f"[OK] SHA256 OK")
-                else:
-                    print(f"[ERROR] MISMATCH")
-                    print(f"  -> Local Hash : {local_digest}")  
-                    print(f"  -> Server Hash: {server_digest}") 
-                    os.remove(local_path)
-                    sys.exit(1)
+                # Receive final ACK frame containing server's SHA256 digest
+                reply = common.read_frame(client).decode("utf8")
+                local_digest = hasher.hexdigest()
+                
+                # Ensure server replied with a valid SHA256 format before parsing
+                if reply.startswith("ACK sha256 "):
+                    server_digest = reply.split(" ")[2].strip()
+                    
+                    # Compare the local hash with the server's hash
+                    if local_digest == server_digest:
+                        print(f"[OK] SHA256 OK")
+                        os.replace(part_path, local_path)
+                    else:
+                        print(f"[ERROR] MISMATCH")
+                        print(f"  -> Local Hash : {local_digest}")  
+                        print(f"  -> Server Hash: {server_digest}") 
+                        os.remove(part_path)
+                        sys.exit(1)
 
+                else:
+                    print(f"[ERROR] Invalid response from server: {reply}")
+                    os.remove(part_path)
+                    sys.exit(1)
             else:
-                print(f"[ERROR] Invalid response from server: {reply}")
-                os.remove(local_path)
-                sys.exit(1)
-        else:
-            print(f"[ERROR] Incomplete data received ({received}/{size} bytes)")
-        return True
+                print(f"[ERROR] Incomplete data received ({received}/{size} bytes)")
+            return True
+        except Exception:
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+            raise
 
     else:
         common.send_frame(client, cmd.encode("utf8"))
