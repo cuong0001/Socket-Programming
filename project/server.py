@@ -36,6 +36,11 @@ CHUNK_SIZE = 4096
 # use it (see valid_filename) and LIST never advertises it.
 PART_SUFFIX = ".part"
 
+# Longest command word echoed into the log. Frames may be up to 1 MiB, and
+# a rejected command is logged verbatim -- without a cap a client could flood
+# logs/server.log with one request.
+MAX_LOGGED_VERB = 20
+
 # Anything that could steer a path outside storage/ (path traversal):
 # separators, parent-dir hops, Windows drive/stream syntax
 FORBIDDEN_PARTS = ("/", "\\", "..", ":")
@@ -65,7 +70,26 @@ def _discard(path):
         pass
 
 
-def handle_list(conn):
+def _verb(command):
+    """The command word, trimmed for the log.
+
+    The client controls this text, so cap it: a megabyte-long "command" must
+    not turn into a megabyte-long log line.
+    """
+    return command.split(" ", 1)[0][:MAX_LOGGED_VERB] or "(empty)"
+
+
+def reject(conn, ip, verb, reason):
+    """Answer 'ERR <reason>' and log the refusal.
+
+    Every command leaves exactly one record in the log (R1.4), including the
+    ones that never reach a handler.
+    """
+    common.send_frame(conn, f"ERR {reason}".encode("utf8"))
+    logger.command(ip, verb, f"ERR {reason}")
+
+
+def handle_list(conn, ip):
     """Reply 'OK <count>' plus one 'size<TAB>name' line per stored file."""
     lines = []
     for entry in sorted(os.listdir(STORAGE_DIR)):
@@ -81,6 +105,7 @@ def handle_list(conn):
     if lines:
         reply += "\n" + "\n".join(lines)
     common.send_frame(conn, reply.encode("utf8"))
+    logger.command(ip, "LIST", f"OK {len(lines)}")
 
 
 def handle_upload(conn, ip, size, name):
@@ -96,7 +121,7 @@ def handle_upload(conn, ip, size, name):
     try:
         f = open(part_path, "wb")
     except OSError:
-        common.send_frame(conn, f"ERR cannot open {name}".encode("utf8"))
+        reject(conn, ip, "UPLOAD", f"cannot open {name}")
         return
 
     received = 0
@@ -137,9 +162,12 @@ def handle_upload(conn, ip, size, name):
     except OSError as e:
         # The stream is still frame-aligned, so this is recoverable: report it
         # and keep the session alive rather than dropping the connection.
+        # Log e.strerror, not str(e) -- the latter embeds absolute paths.
         _discard(part_path)
         common.send_frame(conn, f"ERR cannot store {name}".encode("utf8"))
-        logger.error(ip, f"commit failed for {name}: {type(e).__name__}: {e}")
+        logger.command(
+            ip, "UPLOAD", f"ERR cannot store {name} ({e.strerror or type(e).__name__})"
+        )
         return
 
     duration = time.perf_counter() - started
@@ -154,7 +182,7 @@ def handle_download(conn, ip, name):
     """OK <size> -> send file as 4096-byte data frames -> ACK sha256 <digest>."""
     path = os.path.join(STORAGE_DIR, name)
     if not os.path.isfile(path):
-        common.send_frame(conn, b"ERR no such file")
+        reject(conn, ip, "DOWNLOAD", "no such file")
         return
 
     size = os.path.getsize(path)
@@ -185,7 +213,7 @@ def handle_download(conn, ip, name):
 
 def dispatch(conn, ip, command):
     if command == "LIST":
-        handle_list(conn)
+        handle_list(conn, ip)
         return
 
     parts = command.split(" ", 2)
@@ -199,9 +227,9 @@ def dispatch(conn, ip, command):
             size = -1
         name = parts[2]
         if size < 0:
-            common.send_frame(conn, b"ERR bad command")
+            reject(conn, ip, "UPLOAD", "bad command")
         elif not valid_filename(name):
-            common.send_frame(conn, b"ERR bad filename")
+            reject(conn, ip, "UPLOAD", "bad filename")
         else:
             handle_upload(conn, ip, size, name)
         return
@@ -210,12 +238,12 @@ def dispatch(conn, ip, command):
     if parts[0] == "DOWNLOAD" and len(parts) >= 2:
         name = command.split(" ", 1)[1]
         if not valid_filename(name):
-            common.send_frame(conn, b"ERR bad filename")
+            reject(conn, ip, "DOWNLOAD", "bad filename")
         else:
             handle_download(conn, ip, name)
         return
 
-    common.send_frame(conn, b"ERR bad command")
+    reject(conn, ip, _verb(command), "bad command")
 
 
 def serve_one(conn, addr):
@@ -228,10 +256,9 @@ def serve_one(conn, addr):
         except UnicodeDecodeError:
             # The frame was still read whole, so the stream stays aligned:
             # answer ERR and keep the session alive
-            common.send_frame(conn, b"ERR bad command")
+            reject(conn, addr[0], "(binary)", "bad command")
             continue
 
-        print(f"[INFO] {addr[0]}:{addr[1]} -> {command!r}")
         dispatch(conn, addr[0], command)
 
 
