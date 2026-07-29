@@ -45,20 +45,55 @@ MAX_LOGGED_VERB = 20
 # separators, parent-dir hops, Windows drive/stream syntax
 FORBIDDEN_PARTS = ("/", "\\", "..", ":")
 
+# Windows resolves these to devices rather than files, extension and case
+# regardless ("NUL.txt" is still the null device). Behaviour varies by Windows
+# build -- some create a real file, some fail -- so refuse them everywhere and
+# keep storage/ predictable.
+WINDOWS_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{digit}" for digit in range(1, 10)]
+    + [f"LPT{digit}" for digit in range(1, 10)]
+)
+
 
 class FatalSessionError(Exception):
     """Mid-transfer failure: the byte stream is no longer aligned on a
     frame boundary, so this connection cannot be reused and must close."""
 
 
+def _normalized(name):
+    """The name the filesystem will really use.
+
+    Windows silently strips trailing dots and spaces from a path component,
+    so "report." lands on disk as "report".
+    """
+    return name.rstrip(". ")
+
+
 def valid_filename(name):
+    """Accept only names we can store under exactly the name we were given."""
     if not name:
         return False
-    if name.endswith(PART_SUFFIX):
-        # Reserved for upload staging. A client-owned "x.part" would collide
-        # with the staging file and then be hidden by LIST -- a file nobody
-        # can see. Refuse it up front instead.
+
+    if not name.isprintable():
+        # Control characters: a NUL makes open() raise ValueError, and a
+        # newline would let a filename forge extra lines in the log.
         return False
+
+    if _normalized(name) != name:
+        # We would confirm one name and store another. Refusing is honest,
+        # and it also blocks "x.part." sneaking past the suffix check below.
+        return False
+
+    if name.casefold().endswith(PART_SUFFIX):
+        # Reserved for upload staging. Compared case-insensitively because
+        # Windows treats "x.PART" and "x.part" as the same file -- a
+        # client-owned "x.PART" would be destroyed by a staging file.
+        return False
+
+    if name.split(".")[0].upper() in WINDOWS_DEVICE_NAMES:
+        return False
+
     return not any(part in name for part in FORBIDDEN_PARTS)
 
 
@@ -94,8 +129,9 @@ def handle_list(conn, ip):
     lines = []
     for entry in sorted(os.listdir(STORAGE_DIR)):
         # An upload in progress (or one orphaned by a hard kill) is not a
-        # real file yet -- never advertise it
-        if entry.endswith(PART_SUFFIX):
+        # real file yet -- never advertise it. Case-insensitive to match
+        # valid_filename, so "X.PART" cannot pose as a finished file.
+        if entry.casefold().endswith(PART_SUFFIX):
             continue
         path = os.path.join(STORAGE_DIR, entry)
         if os.path.isfile(path):
@@ -120,7 +156,10 @@ def handle_upload(conn, ip, size, name):
     part_path = final_path + PART_SUFFIX
     try:
         f = open(part_path, "wb")
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError: a name valid_filename let through that the OS still
+        # refuses (e.g. an embedded NUL) -- answer ERR instead of dropping
+        # the connection with an unhandled exception.
         reject(conn, ip, "UPLOAD", f"cannot open {name}")
         return
 
@@ -151,6 +190,12 @@ def handle_upload(conn, ip, size, name):
         # Discard the staging file only. Any existing file under `name` was
         # never opened, so it survives untouched.
         _discard(part_path)
+        # Record how far the transfer got before failing, so an aborted
+        # upload is not an unexplained gap between CONNECT and DISCONNECT.
+        logger.transfer(
+            ip, "UPLOAD", name, received,
+            time.perf_counter() - started, "ABORTED", declared=size,
+        )
         raise
 
     # Every declared byte arrived, and `with` has closed the file -- Windows
@@ -188,20 +233,29 @@ def handle_download(conn, ip, name):
     size = os.path.getsize(path)
     common.send_frame(conn, f"OK {size}".encode("utf8"))
 
-    remaining = size
+    sent = 0
     # Hash incrementally as bytes leave -- never re-read the file (R1.3).
     hasher = hashlib.sha256()
     started = time.perf_counter()
-    with open(path, "rb") as f:
-        while remaining > 0:
-            chunk = f.read(min(CHUNK_SIZE, remaining))
-            if not chunk:
-                # The client was promised `size` bytes and counts on every
-                # one of them; short delivery would desync the stream
-                raise FatalSessionError(f"{name} shrank while sending")
-            common.send_frame(conn, chunk)
-            hasher.update(chunk)
-            remaining -= len(chunk)
+    try:
+        with open(path, "rb") as f:
+            while sent < size:
+                chunk = f.read(min(CHUNK_SIZE, size - sent))
+                if not chunk:
+                    # The client was promised `size` bytes and counts on every
+                    # one of them; short delivery would desync the stream
+                    raise FatalSessionError(f"{name} shrank while sending")
+                common.send_frame(conn, chunk)
+                hasher.update(chunk)
+                sent += len(chunk)
+    except BaseException:
+        # Same reasoning as upload: a client that vanishes mid-download must
+        # still leave a record of what it got.
+        logger.transfer(
+            ip, "DOWNLOAD", name, sent,
+            time.perf_counter() - started, "ABORTED", declared=size,
+        )
+        raise
 
     duration = time.perf_counter() - started
 
