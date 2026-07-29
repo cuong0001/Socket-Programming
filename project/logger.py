@@ -80,16 +80,23 @@ class Logger:
         """One record for a command that moves no file: 'LIST | OK 3'."""
         self.log(ip, command, result)
 
-    def transfer(self, ip, command, filename, nbytes, duration, checksum):
-        """The graded session line: command, file, size, time, speed, checksum."""
+    def transfer(self, ip, command, filename, nbytes, duration, checksum,
+                 declared=None):
+        """The graded session line: command, file, size, time, speed, checksum.
+
+        `declared` is the size the transfer was supposed to reach. Pass it only
+        when the transfer did not finish, so the record shows how far it got
+        ("7B/100000B"); a completed transfer keeps the plain "10485760B" shape.
+        """
         # A 0-byte file can finish between two perf_counter reads; never
         # divide by zero for it.
         speed = (nbytes / 1024) / duration if duration > 0 else 0.0
+        size_field = f"{nbytes}B" if declared is None else f"{nbytes}B/{declared}B"
         self.log(
             ip,
             command,
             filename,
-            f"{nbytes}B",
+            size_field,
             f"{duration:.{DURATION_DECIMALS}f}s",
             f"{speed:.1f}KB/s",
             checksum,
