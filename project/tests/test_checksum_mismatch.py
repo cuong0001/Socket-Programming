@@ -19,14 +19,14 @@ def fake_server(sock):
         req = read_frame(conn)
         # Polish: Fail fast if the client sends an unexpected command
         assert req.decode("utf-8").startswith("DOWNLOAD"), "Client did not send DOWNLOAD"
-        
+
         send_frame(conn, b"OK 10")
-        
+
         original_data = b"\x00" * 10
         hasher = hashlib.sha256(original_data)
-        
+
         send_frame(conn, b"\x01" * 10)
-        
+
         send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf-8"))
 
 class TestChecksumMismatch(unittest.TestCase):
@@ -35,19 +35,19 @@ class TestChecksumMismatch(unittest.TestCase):
             temp_path = Path(temp_dir)
             downloads_dir = temp_path / "downloads"
             downloads_dir.mkdir(parents=True, exist_ok=True)
-            
+
             target_file = downloads_dir / "fake.bin"
             target_file.write_text("old valid data")
-            
+
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.bind(("127.0.0.1", 0))
             sock.listen(1)
             port = sock.getsockname()[1]
-            
+
             # Fix: Use daemon=True so the thread doesn't keep the process alive if hung
             server_thread = threading.Thread(target=fake_server, args=(sock,), daemon=True)
             server_thread.start()
-            
+
             # Fix: Use try...finally to guarantee cleanup even if subprocess.run times out
             try:
                 result = subprocess.run(
@@ -62,7 +62,7 @@ class TestChecksumMismatch(unittest.TestCase):
             finally:
                 sock.close()
                 server_thread.join(timeout=5)
-            
+
             self.assertEqual(result.returncode, 1, "Client must exit with code 1 on mismatch")
             self.assertIn("MISMATCH", result.stdout + result.stderr)
             self.assertFalse((downloads_dir / "fake.bin.part").exists(), "Staging file must be deleted")
