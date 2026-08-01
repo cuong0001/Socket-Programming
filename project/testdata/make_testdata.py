@@ -29,7 +29,14 @@ def make_testdata():
         all_bytes = bytes(range(256))
         f.write(all_bytes * 100)
     
-    print("All 6 test files created successfully.")
+    print("Creating 150MB file...")
+    with open("testdata/150mb.bin", "wb") as f:
+        chunk = b"E" * 4096
+        num_loops = (150 * 1024 * 1024) // 4096
+        for _ in range(num_loops):
+            f.write(chunk)
+            
+    print("All 7 test files created successfully.")
 
 if __name__ == "__main__":
     make_testdata()
