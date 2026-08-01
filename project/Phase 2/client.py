@@ -3,6 +3,15 @@ import socket
 import sys
 import os
 import common
+import protocol as P, struct
+
+
+def send_packet(sock, opcode, payload=b"", user_id=0):
+    sock.sendall(P.pack_packet(opcode, user_id, payload))
+
+def recv_packet(sock):
+    return P.read_packet(sock)
+
 
 #python client.py 127.0.0.1 9000 LIST
 HOST = sys.argv[1] #127.0.0.1
@@ -149,12 +158,14 @@ def process_command(client, cmd):
             raise
 
     else:
-        common.send_frame(client, cmd.encode("utf8"))
-        response_bytes = common.read_frame(client)
-        if not response_bytes: 
-            print("[INFO] Server closed the connection!")
-            return False
-        print(f"--- SERVER RESPONSE ---\n{response_bytes.decode('utf8')}")
+        send_packet(client, P.FILE_LIST, user_id=uid)
+        op, uid, data = recv_packet(client)
+        if op == P.FILE_LIST_RESP:
+            for name, size in P.unpack_file_list_response(data):
+                print(f"{size}\t{name}")
+        elif op == P.ERROR:
+            code, msg = struct.unpack("!HH", data[:4]); print(f"ERR {code}: {data[4:].decode()}")
+        
         return True
 
 
