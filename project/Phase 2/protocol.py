@@ -140,24 +140,48 @@ def unpack_filename(payload: bytes) -> str:
     return filename
 
 
-def pack_upload(filename: str, total_size: int, offset: int = 0) -> bytes:
+def _optional_sha256(sha256: bytes) -> bytes:
+    """Validate an optional raw SHA-256 digest."""
+    sha256 = _bytes(sha256, "sha256")
+    if sha256 and len(sha256) != 32:
+        raise ValueError("sha256 must be exactly 32 bytes")
+    return sha256
+
+
+def pack_upload(
+    filename: str,
+    total_size: int,
+    offset: int = 0,
+    sha256: bytes = b"",
+) -> bytes:
+    """Pack FILE_UPLOAD metadata, optionally including the full-file hash."""
     total_size = _unsigned(total_size, 64, "total_size")
     offset = _unsigned(offset, 64, "offset")
     if offset > total_size:
         raise ValueError("offset must not exceed total_size")
-    return pack_filename(filename) + struct.pack("!QQ", total_size, offset)
+    return (
+        pack_filename(filename)
+        + struct.pack("!QQ", total_size, offset)
+        + _optional_sha256(sha256)
+    )
 
 
-def unpack_upload(payload: bytes) -> tuple[str, int, int]:
+def unpack_upload(payload: bytes) -> tuple[str, int, int, bytes]:
+    """Unpack FILE_UPLOAD metadata and return its optional raw digest."""
+    payload = _bytes(payload)
     filename, offset = unpack_text(payload)
     if not filename:
         raise ValueError("filename must not be empty")
-    if len(payload) - offset != 16:
-        raise ValueError("Upload payload must end with total_size and offset")
-    total_size, next_offset = struct.unpack("!QQ", payload[offset:])
+    remaining = len(payload) - offset
+    if remaining not in (16, 48):
+        raise ValueError(
+            "Upload payload must contain total_size, offset, and optional SHA-256"
+        )
+    total_size, next_offset = struct.unpack("!QQ", payload[offset : offset + 16])
     if next_offset > total_size:
         raise ValueError("offset must not exceed total_size")
-    return filename, total_size, next_offset
+    sha256 = payload[offset + 16 :]
+    return filename, total_size, next_offset, sha256
 
 
 def pack_chunk(offset: int, data: bytes) -> bytes:
@@ -173,17 +197,37 @@ def unpack_chunk(payload: bytes) -> tuple[int, bytes]:
     return offset, payload[8:]
 
 
-def pack_ack(acked_opcode: int, next_offset: int) -> bytes:
+def pack_ack(
+    acked_opcode: int,
+    next_offset: int,
+    sha256: bytes = b"",
+) -> bytes:
+    """Pack an ACK with an optional full-file SHA-256 digest."""
     acked_opcode = _unsigned(acked_opcode, 16, "acked_opcode")
     next_offset = _unsigned(next_offset, 64, "next_offset")
-    return struct.pack("!HQ", acked_opcode, next_offset)
+    return (
+        struct.pack("!HQ", acked_opcode, next_offset)
+        + _optional_sha256(sha256)
+    )
 
 
-def unpack_ack(payload: bytes) -> tuple[int, int]:
+def unpack_ack(payload: bytes) -> tuple[int, int, bytes]:
+    """Unpack an ACK and return ``(opcode, next_offset, sha256)``."""
     payload = _bytes(payload)
-    if len(payload) != 10:
-        raise ValueError("ACK payload must be exactly 10 bytes")
-    return struct.unpack("!HQ", payload)
+    if len(payload) not in (10, 42):
+        raise ValueError("ACK payload must be 10 bytes, plus optional SHA-256")
+    acked_opcode, next_offset = struct.unpack("!HQ", payload[:10])
+    return acked_opcode, next_offset, payload[10:]
+
+
+def pack_error(code: int, message: str) -> bytes:
+    """Pack an ERROR payload as code, UTF-8 byte length, and message."""
+    code = _unsigned(code, 16, "error code")
+    if not isinstance(message, str):
+        raise TypeError("message must be a string")
+    encoded = message.encode("utf-8")
+    _unsigned(len(encoded), 16, "error message length")
+    return struct.pack("!HH", code, len(encoded)) + encoded
 
 
 def pack_file_list_response(entries: Iterable[tuple[str, int]]) -> bytes:
@@ -236,6 +280,7 @@ __all__ = [
     "Opcode",
     "pack_ack",
     "pack_chunk",
+    "pack_error",
     "pack_file_list_response",
     "pack_filename",
     "pack_packet",
