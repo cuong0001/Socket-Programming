@@ -18,10 +18,10 @@ def write_sidecar(storage_dir: str, filename: str, total_size: int, sha256: byte
     # Atomic write: Save to a temporary file first, then replace to prevent corruption on crash
     target_path = sidecar_path(storage_dir, filename)
     tmp_path = target_path + ".tmp"
-    
+
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-        
+
     os.replace(tmp_path, target_path)
 
 def validate_sidecar(storage_dir: str, filename: str, total_size: int, sha256: bytes) -> bool:
@@ -40,7 +40,7 @@ def validate_sidecar(storage_dir: str, filename: str, total_size: int, sha256: b
         # Verify if total size and expected hash match the original file
         size_ok = meta.get("total_size") == total_size
         hash_ok = (not sha256) or meta.get("expected_sha256") == sha256.hex()
-        
+
         return size_ok and hash_ok
     except (OSError, KeyError, json.JSONDecodeError, ValueError) as e:
         # Log the exact reason why sidecar validation failed for easier debugging
@@ -72,4 +72,4 @@ def cleanup_staging(storage_dir: str, filename: str) -> None:
         except OSError:
             # Ignore error if the file does not exist
             pass
-        
+

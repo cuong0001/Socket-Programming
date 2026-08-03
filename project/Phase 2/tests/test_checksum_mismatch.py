@@ -51,7 +51,7 @@ class TestChecksumMismatch(unittest.TestCase):
             # Fix: Use try...finally to guarantee cleanup even if subprocess.run times out
             try:
                 result = subprocess.run(
-                    [sys.executable, str(PROJECT_DIR / "client.py"), "127.0.0.1", str(port), "DOWNLOAD fake.bin"],
+                    [sys.executable, str(PROJECT_DIR / "client.py"), "--username", "alice", "127.0.0.1", str(port), "DOWNLOAD fake.bin"],
                     cwd=str(temp_path),
                     capture_output=True,
                     text=True,

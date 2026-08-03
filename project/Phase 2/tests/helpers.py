@@ -61,6 +61,8 @@ class RunningServer:
             [
                 sys.executable,
                 str(CLIENT_FILE),
+                "--username",
+                "alice",
                 "127.0.0.1",
                 str(self.port),
                 *arguments,
