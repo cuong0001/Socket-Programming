@@ -58,7 +58,7 @@ def get_download_offset(download_dir: str, filename: str) -> int:
     return os.path.getsize(part) if os.path.exists(part) else 0
 
 def commit_download(download_dir: str, filename: str) -> None:
-    # Renames the .part file to the actual filename upon successful transfer completio
+    # Renames the .part file to the actual filename upon successful transfer completion
     os.replace(
         os.path.join(download_dir, filename + PART_SUFFIX),
         os.path.join(download_dir, filename)

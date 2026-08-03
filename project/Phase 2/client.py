@@ -3,8 +3,8 @@ import socket
 import sys
 import os
 import common
-import protocol as P, struct
-
+import protocol as P
+import struct
 
 def send_packet(sock, opcode, payload=b"", user_id=0):
     sock.sendall(P.pack_packet(opcode, user_id, payload))
@@ -13,12 +13,13 @@ def recv_packet(sock):
     return P.read_packet(sock)
 
 
-#python client.py 127.0.0.1 9000 LIST
-HOST = sys.argv[1] #127.0.0.1
+# python client.py 127.0.0.1 9000 alice LIST
+HOST = sys.argv[1] # 127.0.0.1
 PORT = int(sys.argv[2]) # 9000
-COMMAND = " ".join(sys.argv[3:]) if len(sys.argv) > 3 else ""
+USERNAME = sys.argv[3] # Extract username from args (e.g., "alice")
+COMMAND = " ".join(sys.argv[4:]) if len(sys.argv) > 4 else ""
 
-def process_command(client, cmd):
+def process_command(client, cmd, uid):
     if not cmd:
         return True
 
@@ -159,7 +160,7 @@ def process_command(client, cmd):
 
     else:
         send_packet(client, P.FILE_LIST, user_id=uid)
-        op, uid, data = recv_packet(client)
+        op, _, data = recv_packet(client)
         if op == P.FILE_LIST_RESP:
             for name, size in P.unpack_file_list_response(data):
                 print(f"{size}\t{name}")
@@ -174,15 +175,25 @@ client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     client.connect((HOST, PORT))
     print(f"[OK] Connected to {HOST}:{PORT}")
+
+    # Must login first to acquire a valid uid from the server
+    send_packet(client, P.LOGIN, payload=P.pack_text(USERNAME))
+    op, uid, payload = recv_packet(client)
+    
+    if op == P.ERROR:
+        code, _ = struct.unpack("!HH", payload[:4])
+        print(f"[ERROR] LOGIN failed ({code}): {payload[4:].decode()}")
+        sys.exit(1)
+
     
     if COMMAND:
-        process_command(client, COMMAND)
+        process_command(client, COMMAND, uid)
     else:
         while True:
             cmd = input("\nEnter command: ").strip()
             if cmd.lower() == "exit":
                 break
-            is_connected = process_command(client, cmd)
+            is_connected = process_command(client, cmd, uid)
             if not is_connected:
                 break
 
