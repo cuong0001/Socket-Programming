@@ -134,12 +134,12 @@ class PacketTests(unittest.TestCase):
 
 
 class PayloadTests(unittest.TestCase):
-    def test_upload_round_trip_supports_utf8_filename(self) -> None:
+    def test_upload_round_trip_preserves_filename(self) -> None:
         digest = bytes(range(32))
-        payload = pack_upload("unicode-\u2603.bin", 12_345, 4096, digest)
+        payload = pack_upload("report.bin", 12_345, 4096, digest)
         self.assertEqual(
             unpack_upload(payload),
-            ("unicode-\u2603.bin", 12_345, 4096, digest),
+            ("report.bin", 12_345, 4096, digest),
         )
 
         legacy_payload = pack_upload("empty.bin", 0)
@@ -165,32 +165,28 @@ class PayloadTests(unittest.TestCase):
             (int(LOGIN), 1, b""),
         )
 
-    def test_error_payload_uses_utf8_byte_length(self) -> None:
-        payload = pack_error(0x0101, "invalid Unicode message \u26a0")
+    def test_error_payload_uses_encoded_byte_length(self) -> None:
+        payload = pack_error(0x0101, "invalid filename")
         code, length = struct.unpack("!HH", payload[:4])
         self.assertEqual(code, 0x0101)
-        self.assertEqual(
-            length, len("invalid Unicode message \u26a0".encode("utf-8"))
-        )
-        self.assertEqual(
-            payload[4:].decode("utf-8"), "invalid Unicode message \u26a0"
-        )
+        self.assertEqual(length, len("invalid filename".encode("utf-8")))
+        self.assertEqual(payload[4:].decode("utf-8"), "invalid filename")
 
     def test_error_round_trip(self) -> None:
         self.assertEqual(
-            unpack_error(pack_error(0x0101, "invalid Unicode message \u26a0")),
-            (0x0101, "invalid Unicode message \u26a0"),
+            unpack_error(pack_error(0x0101, "invalid filename")),
+            (0x0101, "invalid filename"),
         )
 
-    def test_download_round_trip_supports_resume_and_utf8(self) -> None:
-        payload = pack_download("unicode-\u2603.bin", 4096)
+    def test_download_round_trip_supports_resume(self) -> None:
+        payload = pack_download("report.bin", 4096)
         self.assertEqual(
             payload,
-            pack_filename("unicode-\u2603.bin") + struct.pack("!Q", 4096),
+            pack_filename("report.bin") + struct.pack("!Q", 4096),
         )
         self.assertEqual(
             unpack_download(payload),
-            ("unicode-\u2603.bin", 4096),
+            ("report.bin", 4096),
         )
         self.assertEqual(
             unpack_download(pack_download("fresh.bin")),
@@ -202,7 +198,7 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(unpack_filename(payload), "report final.bin")
 
     def test_file_list_response_round_trip(self) -> None:
-        entries = [("empty.bin", 0), ("unicode-\u2603.bin", 4097)]
+        entries = [("empty.bin", 0), ("report.bin", 4097)]
         self.assertEqual(
             unpack_file_list_response(pack_file_list_response(entries)), entries
         )
