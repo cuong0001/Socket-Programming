@@ -8,6 +8,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR))
 
+import protocol as protocol_module
 from protocol import (
     ACK,
     ERROR,
@@ -165,12 +166,14 @@ class PayloadTests(unittest.TestCase):
             (int(LOGIN), 1, b""),
         )
 
-    def test_error_payload_uses_encoded_byte_length(self) -> None:
-        payload = pack_error(0x0101, "invalid filename")
+    def test_error_payload_uses_utf8_byte_length(self) -> None:
+        message = "invalid filename — retry"
+        payload = pack_error(0x0101, message)
         code, length = struct.unpack("!HH", payload[:4])
         self.assertEqual(code, 0x0101)
-        self.assertEqual(length, len("invalid filename".encode("utf-8")))
-        self.assertEqual(payload[4:].decode("utf-8"), "invalid filename")
+        self.assertEqual(length, len(message.encode("utf-8")))
+        self.assertNotEqual(length, len(message))
+        self.assertEqual(payload[4:].decode("utf-8"), message)
 
     def test_error_round_trip(self) -> None:
         self.assertEqual(
@@ -193,6 +196,25 @@ class PayloadTests(unittest.TestCase):
             ("fresh.bin", 0),
         )
 
+    def test_download_and_error_codecs_are_exported(self) -> None:
+        self.assertTrue(
+            {
+                "pack_download",
+                "unpack_download",
+                "unpack_error",
+            }.issubset(protocol_module.__all__)
+        )
+
+    def test_download_rejects_invalid_offsets(self) -> None:
+        for req_offset in (-1, 1 << 64, True):
+            with self.subTest(req_offset=req_offset):
+                with self.assertRaises((TypeError, ValueError)):
+                    pack_download("report.bin", req_offset)
+
+    def test_unpack_error_rejects_invalid_utf8(self) -> None:
+        with self.assertRaises(ValueError):
+            unpack_error(struct.pack("!HH", 1, 1) + b"\xff")
+
     def test_download_and_delete_use_unambiguous_filename_payload(self) -> None:
         payload = pack_filename("report final.bin")
         self.assertEqual(unpack_filename(payload), "report final.bin")
@@ -208,7 +230,10 @@ class PayloadTests(unittest.TestCase):
             lambda: unpack_upload(b"\x00\x08short"),
             lambda: unpack_ack(b"\x00" * 9),
             lambda: unpack_chunk(b"\x00" * 7),
+            lambda: unpack_download(b"\x00\x00" + b"\x00" * 8),
             lambda: unpack_download(pack_filename("data.bin") + b"\x00" * 7),
+            lambda: unpack_download(pack_filename("data.bin") + b"\x00" * 9),
+            lambda: unpack_error(b"\x00" * 3),
             lambda: unpack_error(b"\x00\x01\x00\x02x"),
             lambda: unpack_error(b"\x00\x01\x00\x01xy"),
             lambda: unpack_filename(b"\x00\x05abc"),
