@@ -21,6 +21,7 @@ from protocol import (
     LOGOUT,
     pack_ack,
     pack_chunk,
+    pack_download,
     pack_error,
     pack_file_list_response,
     pack_filename,
@@ -29,6 +30,8 @@ from protocol import (
     read_packet,
     unpack_ack,
     unpack_chunk,
+    unpack_download,
+    unpack_error,
     unpack_file_list_response,
     unpack_filename,
     unpack_packet,
@@ -169,6 +172,27 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(length, len("tên lỗi".encode("utf-8")))
         self.assertEqual(payload[4:].decode("utf-8"), "tên lỗi")
 
+    def test_error_round_trip(self) -> None:
+        self.assertEqual(
+            unpack_error(pack_error(0x0101, "tên lỗi")),
+            (0x0101, "tên lỗi"),
+        )
+
+    def test_download_round_trip_supports_resume_and_utf8(self) -> None:
+        payload = pack_download("dữ liệu.bin", 4096)
+        self.assertEqual(
+            payload,
+            pack_filename("dữ liệu.bin") + struct.pack("!Q", 4096),
+        )
+        self.assertEqual(
+            unpack_download(payload),
+            ("dữ liệu.bin", 4096),
+        )
+        self.assertEqual(
+            unpack_download(pack_download("fresh.bin")),
+            ("fresh.bin", 0),
+        )
+
     def test_download_and_delete_use_unambiguous_filename_payload(self) -> None:
         payload = pack_filename("report final.bin")
         self.assertEqual(unpack_filename(payload), "report final.bin")
@@ -184,6 +208,9 @@ class PayloadTests(unittest.TestCase):
             lambda: unpack_upload(b"\x00\x08short"),
             lambda: unpack_ack(b"\x00" * 9),
             lambda: unpack_chunk(b"\x00" * 7),
+            lambda: unpack_download(pack_filename("data.bin") + b"\x00" * 7),
+            lambda: unpack_error(b"\x00\x01\x00\x02x"),
+            lambda: unpack_error(b"\x00\x01\x00\x01xy"),
             lambda: unpack_filename(b"\x00\x05abc"),
             lambda: unpack_file_list_response(b"\x00\x00\x00\x01"),
         ]
