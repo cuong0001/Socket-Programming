@@ -37,14 +37,14 @@ class RunningServer:
         deadline = time.time() + 5
         while time.time() < deadline:
             if self.process.poll() is not None:
-                raise RuntimeError("Server kết thúc trước khi lắng nghe")
+                raise RuntimeError("Server exited before it started listening")
             try:
                 with socket.create_connection(("127.0.0.1", self.port), timeout=0.1):
                     return self
             except OSError:
                 time.sleep(0.05)
 
-        raise RuntimeError("Server không lắng nghe sau 5 giây")
+        raise RuntimeError("Server did not start listening within 5 seconds")
 
     def stop(self) -> None:
         if self.process is not None and self.process.poll() is None:

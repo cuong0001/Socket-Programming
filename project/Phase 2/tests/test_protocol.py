@@ -136,10 +136,10 @@ class PacketTests(unittest.TestCase):
 class PayloadTests(unittest.TestCase):
     def test_upload_round_trip_supports_utf8_filename(self) -> None:
         digest = bytes(range(32))
-        payload = pack_upload("dữ liệu.bin", 12_345, 4096, digest)
+        payload = pack_upload("résumé.bin", 12_345, 4096, digest)
         self.assertEqual(
             unpack_upload(payload),
-            ("dữ liệu.bin", 12_345, 4096, digest),
+            ("résumé.bin", 12_345, 4096, digest),
         )
 
         legacy_payload = pack_upload("empty.bin", 0)
@@ -166,27 +166,27 @@ class PayloadTests(unittest.TestCase):
         )
 
     def test_error_payload_uses_utf8_byte_length(self) -> None:
-        payload = pack_error(0x0101, "tên lỗi")
+        payload = pack_error(0x0101, "invalid résumé")
         code, length = struct.unpack("!HH", payload[:4])
         self.assertEqual(code, 0x0101)
-        self.assertEqual(length, len("tên lỗi".encode("utf-8")))
-        self.assertEqual(payload[4:].decode("utf-8"), "tên lỗi")
+        self.assertEqual(length, len("invalid résumé".encode("utf-8")))
+        self.assertEqual(payload[4:].decode("utf-8"), "invalid résumé")
 
     def test_error_round_trip(self) -> None:
         self.assertEqual(
-            unpack_error(pack_error(0x0101, "tên lỗi")),
-            (0x0101, "tên lỗi"),
+            unpack_error(pack_error(0x0101, "invalid résumé")),
+            (0x0101, "invalid résumé"),
         )
 
     def test_download_round_trip_supports_resume_and_utf8(self) -> None:
-        payload = pack_download("dữ liệu.bin", 4096)
+        payload = pack_download("résumé.bin", 4096)
         self.assertEqual(
             payload,
-            pack_filename("dữ liệu.bin") + struct.pack("!Q", 4096),
+            pack_filename("résumé.bin") + struct.pack("!Q", 4096),
         )
         self.assertEqual(
             unpack_download(payload),
-            ("dữ liệu.bin", 4096),
+            ("résumé.bin", 4096),
         )
         self.assertEqual(
             unpack_download(pack_download("fresh.bin")),
@@ -198,7 +198,7 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(unpack_filename(payload), "report final.bin")
 
     def test_file_list_response_round_trip(self) -> None:
-        entries = [("empty.bin", 0), ("dữ liệu.bin", 4097)]
+        entries = [("empty.bin", 0), ("résumé.bin", 4097)]
         self.assertEqual(
             unpack_file_list_response(pack_file_list_response(entries)), entries
         )
