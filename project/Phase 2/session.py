@@ -87,20 +87,6 @@ class ProtocolError(Exception):
     and the connection must be closed."""
 
 
-def pack_error(code: int, message: str) -> bytes:
-    """Build an ERROR payload: ``error_code:2 + msg_len:2 + msg:utf8``."""
-    import struct
-    encoded = message.encode("utf-8")
-    return struct.pack("!HH", code, len(encoded)) + encoded
-
-
-def pack_ack(acked_opcode: int, next_offset: int,
-             sha256: bytes = b"") -> bytes:
-    """ACK payload with optional trailing SHA-256."""
-    import struct
-    return struct.pack("!HQ", acked_opcode, next_offset) + sha256
-
-
 # ────────────────────────────────────────────────────────────
 # Filename validation (migrated from Phase 1 server.py)
 # ────────────────────────────────────────────────────────────
@@ -181,12 +167,12 @@ class Session:
 
     def send_error(self, code: int, message: str) -> None:
         """Send an ERROR packet."""
-        self.send(P.ERROR, pack_error(code, message))
+        self.send(P.ERROR, P.pack_error(code, message))
 
     def send_ack(self, acked_opcode: int, next_offset: int,
                  sha256: bytes = b"") -> None:
         """Send an ACK packet with optional SHA-256."""
-        self.send(P.ACK, pack_ack(acked_opcode, next_offset, sha256))
+        self.send(P.ACK, P.pack_ack(acked_opcode, next_offset, sha256))
 
     # ── Main dispatch loop ────────────────────────────────────
 
@@ -235,7 +221,7 @@ class Session:
         for entry in sorted(os.listdir(self.storage_dir)):
             if entry.casefold().endswith(PART_SUFFIX):
                 continue
-            if entry.endswith(SIDECAR_SUFFIX):
+            if entry.casefold().endswith(SIDECAR_SUFFIX):
                 continue
             path = os.path.join(self.storage_dir, entry)
             if os.path.isfile(path):
