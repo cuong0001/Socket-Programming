@@ -7,6 +7,7 @@ import protocol as P
 from config import ServerConfig
 from logger import Logger
 from session import ErrorCode, Session
+from storage_service import FileLockRegistry, StorageService
 from users import UserRegistry, UsernameInUse
 
 # python server.py 9000  [host]
@@ -37,6 +38,11 @@ logger = Logger(config.log_file)
 # Bounds concurrent clients (R2.7) and hands out the user_id each Session
 # is built with. One instance shared by every worker thread.
 registry = UserRegistry(config.max_clients)
+
+# Per-(username, filename) locks and sidecar I/O, shared by every Session so
+# two connections uploading the same file can't corrupt each other (R2.3/R2.7).
+file_locks = FileLockRegistry()
+storage = StorageService(config.storage_dir)
 
 
 def _send_error(conn, uid, code, message):
@@ -101,10 +107,9 @@ def serve_client(conn, addr):
     uid = None
     try:
         uid, username = negotiate_login(conn, ip)
-        user_storage_dir = os.path.join(config.storage_dir, username)
-        os.makedirs(user_storage_dir, exist_ok=True)
-        session = Session(conn, addr, user_storage_dir, logger,
-                           user_id=uid, username=username)
+        session = Session(conn, addr, storage.user_dir(username), logger,
+                           user_id=uid, username=username,
+                           file_lock_registry=file_locks, storage_service=storage)
         session.serve()
     except ConnectionError:
         # Normal end of a session: the client closed (cleanly or not).

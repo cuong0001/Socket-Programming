@@ -26,15 +26,6 @@ def create_test_file(path: Path, size: int) -> None:
             remaining -= len(chunk)
 
 
-@unittest.skip(
-    "Blocked by the Day 3 server rewiring (PR #20, session.py): server.py "
-    "now only speaks the Phase 2 binary protocol and requires LOGIN "
-    "first, which client.py in this repo doesn't send yet -- the upload "
-    "gets its connection reset instead of completing. Separately, "
-    "Session.handle_file_upload/handle_file_download are still "
-    "intentional Day 4 stubs, so a real transfer wouldn't succeed even "
-    "with a LOGIN-capable client. Re-enable once both land."
-)
 class RoundTripTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -55,7 +46,7 @@ class RoundTripTests(unittest.TestCase):
 
             result = self.server.run_client("UPLOAD", str(source))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("SHA256 OK", result.stdout)
+            self.assertIn("SHA256 Verification OK", result.stdout)
 
         listing = self.server.run_client("LIST")
         self.assertEqual(listing.returncode, 0, listing.stdout + listing.stderr)
@@ -65,7 +56,7 @@ class RoundTripTests(unittest.TestCase):
         for source in sources:
             result = self.server.run_client("DOWNLOAD", source.name)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("SHA256 OK", result.stdout)
+            self.assertIn("SHA256 Verification OK", result.stdout)
 
             downloaded = self.server.work_dir / "downloads" / source.name
             self.assertTrue(downloaded.is_file())

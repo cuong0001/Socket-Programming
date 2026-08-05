@@ -32,43 +32,62 @@ Hệ Thống Truyền Nhận File Qua Socket TCP — Giai Đoạn 2: Đa Client 
 
 ## TRẠNG THÁI TIẾN ĐỘ (cập nhật liên tục — theo TASK, không theo ngày)
 
-> **Đổi cách theo dõi:** lịch theo ngày (01–07/8) ở các Phần 2–7 bên dưới vẫn giữ nguyên làm **tài liệu tham khảo kỹ thuật** (mẫu code, giải thích thiết kế) — nhưng **không dùng lịch đó để tính PR nào "đúng scope" nữa**. Lý do: PR #19/#20 bị request-change nhiều vòng vì review đôi khi yêu cầu việc thuộc ngày sau (ví dụ PR #20 bị yêu cầu nối `Session` vào `server.py` — đúng ra là việc Ngày 3 — trong khi PR #20 ban đầu chỉ định làm Ngày 1–2). Đó không phải lỗi của người làm PR — review đã tiến nhanh hơn lịch. Từ giờ: merge được là merge, không chờ đúng ngày.
+> **Cách theo dõi:** lịch theo ngày (01–07/8) ở các Phần 2–7 bên dưới vẫn giữ nguyên làm **tài liệu tham khảo kỹ thuật** (mẫu code, giải thích thiết kế, mini-RFC) — mỗi khi làm một việc thật, luôn **trích lại đúng mục kế hoạch đã dùng làm cơ sở** (xem "Nhật ký triển khai" bên dưới) để không mất dấu vết thiết kế gốc. Nhưng **không dùng lịch đó để tính PR nào "đúng scope"** — review có quyền đi nhanh hơn lịch, và điều đó không phải lỗi của người làm PR (xem lịch sử bên dưới).
 
-### Sự thật hiện tại (kiểm tra trực tiếp trên `upstream/main` và các PR, không suy đoán)
+### Cột mốc: PR #20 + #19 đã merge vào `upstream/main` (05/8)
 
-**`upstream/main` chỉ có đúng PR #22.** Không có gì khác được merge.
+Cả hai PR chặn đường đều đã vào `upstream/main`. `session.py`, `server.py`, `users.py`, `client.py`, `file_handler.py`, `resume.py`, `protocol.py`, `config.py` giờ tồn tại đầy đủ, khớp nhau, và **đã kiểm chứng chạy được thật với nhau** (không chỉ merge sạch — đã LOGIN, UPLOAD, DOWNLOAD, LIST, DELETE thật qua socket thật).
 
-| PR | Trạng thái thật | Đang chứa gì |
+### Việc của Cường sau khi merge — ĐÃ XONG (05/8)
+
+Đây là phần việc còn lại được giao ở lần cập nhật trước ("việc cần làm tiếp" bước 4–5), nay đã hoàn thành và kiểm chứng bằng test thật (không chỉ đọc code):
+
+| Việc | Trạng thái | Bằng chứng |
 |---|---|---|
-| **#22 (Bình)** | ✅ **Đã merge xong, không còn vướng.** | `protocol.py` + `config.py`, có cả `pack_download`/`unpack_error` |
-| **#20 (Cường)** | 🟢 **Sẵn sàng merge**, đang chờ merge thật | `session.py` + `server.py` (threaded, LOGIN thật) + `users.py`. Có việc "Ngày 3" là vì review PR #20 yêu cầu thẳng, không phải tự ý làm vượt scope |
-| **#19 (Hưng)** | 🟢 Bản `client.py` **đúng và mới nhất** | LOGIN, UPLOAD/DOWNLOAD nhị phân, exit code đúng, `unpack_error`, `file_handler.py`, `resume.py`, test resume+login-scoping |
-| **#21 (Hưng)** | 🔴 **Cũ hơn PR #19, đang trùng việc** | Cũng sửa `client.py`/`file_handler.py`/`resume.py` nhưng là bản **cũ hơn** PR #19 (chưa có `unpack_error`, chưa fix exit code) — cộng thêm `progress.py`/`rate_limit.py`/`test_throttle.py` là phần PR #19 không có |
+| `storage_service.py` (`FileLockRegistry` + `StorageService`) | ✅ Xong | File mới, xem "Nhật ký triển khai" bên dưới |
+| `handle_file_upload` thật trong `session.py` | ✅ Xong | Round-trip qua `client.py` thật: upload → SHA256 OK; upload trùng tên → `FILE_EXISTS`, không đụng file cũ; ngắt giữa chừng → resume đúng offset, log `ABORTED` đúng định dạng |
+| `handle_file_download` thật trong `session.py` | ✅ Xong | Round-trip 6 cỡ file (0B → 10MB) qua `client.py` thật, so khớp byte-for-byte |
+| `handle_file_delete` thật trong `session.py` | ✅ Xong (server-side; `client.py` chưa có lệnh DELETE — việc của Hưng) | Test thủ công: upload → delete → re-upload cùng tên thành công |
+| Log R1.4 (mỗi lệnh đúng 1 dòng, kể cả các nhánh từ chối sớm) | ✅ Xong | Thêm `logger.command`/`logger.transfer` vào mọi nhánh `send_error` mà bản đầu thiếu |
+| `tests/test_errors.py`, `tests/test_roundtrip.py` | ✅ Viết lại thật (không còn skip) | Toàn bộ chuyển sang gói nhị phân thật, khớp namespace `storage/<username>/` |
+| Bonus: sửa `tests/test_checksum_mismatch.py` | ✅ Xong | Bug thật tìm được khi chạy: subprocess gọi `client.py` thiếu `--username` (nay là tham số bắt buộc) → exit code 2 (lỗi argparse) chứ không phải "race điều kiện" như nghi ngờ trước đó |
 
-**Vấn đề rối hiện tại:** PR #19 và #21 là hai nhánh `client.py` tách rời, sửa độc lập — review một cái không ảnh hưởng cái kia, nên không bao giờ hội tụ. Đây là nguồn gốc chính của cảm giác "review qua lại hoài không xong".
+**Kết quả:** `python -m unittest discover -s tests -t tests -v` → **41/41 PASS, 0 skip, 0 fail.** Đây là lần đầu tiên toàn bộ Phase 2 chạy được từ đầu đến cuối với client/server thật, không phải qua fake server hay skip có lý do.
 
-### Việc cần làm tiếp — xếp theo phụ thuộc, không theo ngày
+### Việc còn lại — xếp theo phụ thuộc, không theo ngày
 
-1. **Merge PR #20** vào `upstream/main`. Đã xong, đã test, đã đúng yêu cầu review — không cần sửa gì thêm, chỉ cần bấm merge.
-2. **Merge PR #19** vào `upstream/main` (không phải #21 — #19 là bản mới/đúng hơn).
-3. **Đóng hoặc rebase PR #21**: sau khi #19 merge, rebase #21 lên trên, bỏ hết phần `client.py`/`file_handler.py`/`resume.py` (đã có từ #19), chỉ giữ lại `progress.py` + `rate_limit.py` + `test_throttle.py`.
-4. **Cường**: viết `storage_service.py` (`FileLockRegistry` + `StorageService`) — không phụ thuộc PR nào, làm ngay được, song song với bước 1–3.
-5. **Sau khi #20 và #19 merge + `storage_service.py` xong**: Cường viết `handle_file_upload`/`handle_file_download` thật trong `session.py` (mẫu code ở Phần 4), test round-trip thật với `client.py` của Hưng.
-6. **Sau bước 5**: Hưng nối `progress.py`/`rate_limit.py` (từ #21) vào luồng UPLOAD/DOWNLOAD thật của `client.py`. Bình viết `test_multi.py`/stress test.
+1. **Đóng hoặc rebase PR #21**: rebase lên `upstream/main` hiện tại, bỏ hết phần `client.py`/`file_handler.py`/`resume.py` (đã có từ #19), chỉ giữ `progress.py` + `rate_limit.py` + `test_throttle.py`.
+2. **Hưng**: nối `progress.py`/`rate_limit.py` vào luồng UPLOAD/DOWNLOAD thật của `client.py` (Ngày 6, Phần 6); thêm lệnh `DELETE` vào `client.py` (server đã sẵn sàng nhận).
+3. **Bình**: `tests/test_multi.py` (10 client đồng thời, bắt buộc theo đề — R2.1), `tools/stress_clients.py` (Ngày 9), và mini-RFC report tổng hợp (Phần 7).
+4. **Cường**: `tests/test_churn.py` (500 connect/disconnect, đo leak thread/handle — Phần 5); cân nhắc thêm test tự động cho `FILE_BUSY` (2 session cùng user cùng file) và `handle_file_delete` (hiện chỉ test thủ công, xem "Nhật ký triển khai").
 
 ### File nào ai giữ (tham khảo nhanh)
 
 | File | Ai | Trạng thái |
 |---|---|---|
 | `protocol.py`, `config.py` | Bình | ✅ Xong, đã merge |
-| `session.py`, `server.py`, `users.py` | Cường | 🟢 Xong trên PR #20, chờ merge. `handle_file_upload/download/delete/chunk` vẫn stub — việc tiếp theo sau khi merge |
-| `storage_service.py` | Cường | ❌ Chưa viết — không chờ ai, làm được ngay |
-| `client.py`, `file_handler.py`, `resume.py` | Hưng | 🟢 Bản đúng nằm ở PR #19, chờ merge (không phải #21) |
-| `progress.py`, `rate_limit.py` | Hưng | ✅ Đã viết (trong PR #21) nhưng chưa nối vào `client.py` thật — làm sau bước 5 ở trên |
-| `tests/test_session.py` | Cường | ✅ Xong |
-| `tests/test_resume.py` | Hưng | ✅ Xong (trong PR #19) |
-| `tests/test_errors.py`, `test_roundtrip.py` | Bình | 🟡 Tạm skip có lý do — viết lại thật sau bước 5 |
-| `tests/test_multi.py`, `test_churn.py`, `test_throttle.py` | Bình/Cường/Hưng | ❌ Chưa bắt đầu — sau bước 5–6 |
+| `session.py`, `server.py`, `users.py`, `storage_service.py` | Cường | ✅ Xong, đã merge, upload/download/delete thật đã hoạt động |
+| `client.py`, `file_handler.py`, `resume.py` | Hưng | ✅ Xong, đã merge (từ PR #19) |
+| `progress.py`, `rate_limit.py` | Hưng | ✅ Đã viết (PR #21, chưa merge) nhưng chưa nối vào `client.py` thật |
+| `tests/test_session.py`, `test_errors.py`, `test_roundtrip.py` | Cường | ✅ Xong, tất cả chạy thật (không skip) |
+| `tests/test_resume.py`, `test_checksum_mismatch.py` | Hưng | ✅ Xong |
+| `tests/test_multi.py`, `test_churn.py`, `test_throttle.py` | Bình/Cường/Hưng | ❌ Chưa bắt đầu |
+
+### Nhật ký triển khai — `storage_service.py` + upload/download/delete thật (Cường, 05/8)
+
+Ghi lại để dễ đối chiếu ngược với kế hoạch gốc khi viết báo cáo (Phần 7 yêu cầu "kiến trúc, lý do chọn").
+
+**`storage_service.py`** — dựa trên mẫu ở [Phần 3 › Cường — `server.py` accept loop + login flow](#phần-3-ngày-3-038-đa-client--login--namespace--lock-registry), đoạn `from storage_service import StorageService, FileLockRegistry`. Hai lớp:
+- `FileLockRegistry`: một `threading.Lock` cho mỗi cặp `(username, filename)`, tạo lười (lazy). Thứ tự khóa luôn là *registry lock → file lock*, và registry lock chỉ giữ đủ lâu để lấy-hoặc-tạo đối tượng Lock — đúng nguyên tắc chống deadlock đã cảnh báo ở [Phần 8, mục 10](#phần-8-sai-lầm-kinh-điển-phase-2) ("Giữ registry lock khi I/O").
+- `StorageService`: bọc `resume.py` (của Hưng, PR #19) theo username thay vì đường dẫn thô, để `Session` chỉ cần biết tên người dùng, không cần tự ghép đường dẫn.
+
+**`handle_file_upload`** — theo sát mẫu ở [Phần 4 › Cường — `session.py` handler FILE_UPLOAD](#phần-4-ngày-4-048-uploaddownload-theo-gói-nhị-phân-ngày-tích-hợp-nặng-nhất), có vài chỗ khác biệt có chủ đích so với mẫu:
+- Mẫu gốc gửi ACK cuối với `acked_opcode=P.FILE_CHUNK`; bản thật dùng `P.FILE_UPLOAD` cho rõ nghĩa hơn — kiểm tra trực tiếp `client.py` xác nhận nó không hề đọc trường `acked_opcode` của ACK cuối (chỉ đọc digest), nên đổi an toàn.
+- Thêm `logger.command`/`logger.transfer` vào **mọi** nhánh từ chối sớm (bad filename, file exists, file busy, offset sai giữa chừng) — mẫu gốc không có, nhưng nguyên tắc R1.4 ("mỗi lệnh đúng 1 dòng log") ở Phần 0 yêu cầu vậy.
+
+**`handle_file_download`** — Phần 4 **không có mẫu code cho DOWNLOAD** (chỉ có UPLOAD), nên phần này tự thiết kế theo đúng bảng opcode ở [Phụ lục A](#phụ-lục-a-đặc-tả-giao-thức-mini-rfc-r22--05đ) (`FILE_DOWNLOAD → ACK(total_size, sha256) → FILE_CHUNK×N`, không có ACK cuối). Xác nhận lại bằng cách đọc trực tiếp `client.py`'s DOWNLOAD branch: nó tự so sánh hash cục bộ sau khi nhận đủ `total_size` byte, không chờ thêm gói nào sau `FILE_CHUNK` cuối — nên server không cần gửi gì thêm sau khi stream xong.
+
+**`handle_file_delete`** — không có trong bảng "🔨 LÀM" của Phần 4 (đánh dấu "implement after core R2.1–R2.7" ở bảng Phần 0), làm thêm cho đủ chính sách trùng tên (R2.7: phải DELETE trước khi upload lại). **Lưu ý:** `client.py` hiện chưa có lệnh `DELETE` ở CLI — server đã sẵn sàng nhận, chỉ cần Hưng thêm nhánh lệnh phía client.
 
 ---
 
