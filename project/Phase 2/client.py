@@ -27,7 +27,7 @@ def process_command(client, cmd, uid):
 
         if not os.path.isfile(filepath):
             print("[ERROR] File not found!")
-            return True
+            return False
 
         size = os.path.getsize(filepath)
         filename = os.path.basename(filepath)
@@ -45,21 +45,21 @@ def process_command(client, cmd, uid):
         if op == P.ERROR:
             code, msg = P.unpack_error(payload)
             print(f"[ERROR] Server rejected upload ({code}): {msg}")
-            return True
+            return False
         elif op != P.ACK:
             print(f"[ERROR] Expected ACK, got {op}")
-            return True
+            return False
 
         acked_opcode, next_offset, _ = P.unpack_ack(payload)
         if acked_opcode != P.FILE_UPLOAD:
             print(f"[ERROR] Expected ACK for FILE_UPLOAD, got {acked_opcode}")
-            return True
+            return False
 
         # Server tells us where to start (resuming if > 0)
         start_offset = next_offset
         if not (0 <= start_offset <= size):
             print(f"[ERROR] Invalid resume offset {start_offset} for file size {size}")
-            return True
+            return False
         if start_offset > 0:
             print(f"[INFO] Resuming upload from {start_offset} bytes...")
 
@@ -120,15 +120,15 @@ def process_command(client, cmd, uid):
         if op == P.ERROR:
             code, msg = P.unpack_error(payload)
             print(f"[ERROR] Server rejected download ({code}): {msg}")
-            return True
+            return False
         elif op != P.ACK:
             print(f"[ERROR] Expected ACK, got {op}")
-            return True
+            return False
 
         acked_opcode, total_size, server_digest = P.unpack_ack(payload)
         if acked_opcode != P.FILE_DOWNLOAD:
             print(f"[ERROR] Expected ACK for FILE_DOWNLOAD, got {acked_opcode}")
-            return True
+            return False
 
         # Validate sidecar if resuming
         if local_offset > 0:
@@ -205,6 +205,7 @@ def process_command(client, cmd, uid):
                 print(f"{size}\t{name}")
         elif op == P.ERROR:
             code, msg = P.unpack_error(data); print(f"ERR {code}: {msg}")
+            return False
 
         return True
 
@@ -244,15 +245,14 @@ def main():
             sys.exit(1)
 
         if cmd_str:
-            process_command(client, cmd_str, uid)
+            if not process_command(client, cmd_str, uid):
+                sys.exit(1)
         else:
             while True:
                 cmd = input("\nEnter command: ").strip()
                 if cmd.lower() == "exit":
                     break
-                is_connected = process_command(client, cmd, uid)
-                if not is_connected:
-                    break
+                process_command(client, cmd, uid)
 
     except ConnectionRefusedError:
         print("[ERROR] Connection refused")
