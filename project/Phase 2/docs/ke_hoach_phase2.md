@@ -30,41 +30,45 @@ Hệ Thống Truyền Nhận File Qua Socket TCP — Giai Đoạn 2: Đa Client 
 
 ---
 
-## TRẠNG THÁI TIẾN ĐỘ (cập nhật liên tục)
+## TRẠNG THÁI TIẾN ĐỘ (cập nhật liên tục — theo TASK, không theo ngày)
 
-> Cập nhật thủ công mỗi khi merge PR. Không phải nghiệm thu chính thức (xem "✅ Nghiệm thu cuối Ngày X" trong từng phần) — đây chỉ để cả nhóm biết ai đang chờ ai.
+> **Đổi cách theo dõi:** lịch theo ngày (01–07/8) ở các Phần 2–7 bên dưới vẫn giữ nguyên làm **tài liệu tham khảo kỹ thuật** (mẫu code, giải thích thiết kế) — nhưng **không dùng lịch đó để tính PR nào "đúng scope" nữa**. Lý do: PR #19/#20 bị request-change nhiều vòng vì review đôi khi yêu cầu việc thuộc ngày sau (ví dụ PR #20 bị yêu cầu nối `Session` vào `server.py` — đúng ra là việc Ngày 3 — trong khi PR #20 ban đầu chỉ định làm Ngày 1–2). Đó không phải lỗi của người làm PR — review đã tiến nhanh hơn lịch. Từ giờ: merge được là merge, không chờ đúng ngày.
 
-### Theo file (khớp bảng Phần 0)
+### Sự thật hiện tại (kiểm tra trực tiếp trên `upstream/main` và các PR, không suy đoán)
 
-| File | Ai | Trạng thái trên `main` |
+**`upstream/main` chỉ có đúng PR #22.** Không có gì khác được merge.
+
+| PR | Trạng thái thật | Đang chứa gì |
 |---|---|---|
-| `config.py` | Cường | ✅ Merged (qua PR #22) |
-| `protocol.py` | Bình | ✅ Merged (PR #22) — có cả `pack_download`/`unpack_error` (thêm ngoài kế hoạch gốc, do review PR #20 phát hiện thiếu) |
-| `session.py` | Cường | 🟡 Khung + state machine + LOGIN/FILE_LIST/LOGOUT chạy thật qua server. `handle_file_upload/download/delete/chunk` vẫn là stub `ERROR "not implemented yet"` — **Ngày 4, chưa làm** |
-| `users.py` | Cường | ✅ Merged — `UserRegistry` (uid, `USERNAME_IN_USE`, semaphore `max_clients`) |
-| `server.py` | Cường | ✅ Merged — accept loop threaded, LOGIN handshake thật, `storage/<username>/` tự tạo |
-| `storage_service.py` | Cường | ❌ **Chưa tạo** — chặn `handle_file_upload` thật (cần `FileLockRegistry` + `validate_sidecar`/`write_sidecar`) |
-| `client.py` | Hưng | ❌ Trên `main` vẫn là bản Phase 1 gốc (không LOGIN). Bản binary + `--username` đã có ở PR #21 nhưng **chưa merge** |
-| `file_handler.py` | Hưng | ❌ Rỗng (0 dòng) trên `main`. Bản đầy đủ ở PR #19/#21, **chưa merge** — `session.py`'s Ngày 4 upload handler cần import từ file này |
-| `resume.py` | Hưng | ❌ Chưa tồn tại trên `main`. Bản đầy đủ ở PR #19/#21, **chưa merge** |
-| `tests/test_session.py` | Cường | ✅ Mới — test trực tiếp `Session` (không cần client.py), 6 case |
-| `tests/test_errors.py` | Bình (kế hoạch gốc) | 🟡 Đã đánh dấu skip có lý do (làm tạm khi fix PR #20, đúng ra là việc Bình) — cần viết lại thật khi có client LOGIN + upload thật |
-| `tests/test_roundtrip.py` | Bình | 🟡 Đã skip có lý do — cần "Adapt sang binary protocol" thật sự (Ngày 4, chưa làm) |
-| `tests/test_multi.py`, `test_throttle.py`, `test_resume.py`, `test_churn.py` | Bình/Hưng/Cường | ❌ Chưa bắt đầu (Ngày 5–6) |
+| **#22 (Bình)** | ✅ **Đã merge xong, không còn vướng.** | `protocol.py` + `config.py`, có cả `pack_download`/`unpack_error` |
+| **#20 (Cường)** | 🟢 **Sẵn sàng merge**, đang chờ merge thật | `session.py` + `server.py` (threaded, LOGIN thật) + `users.py`. Có việc "Ngày 3" là vì review PR #20 yêu cầu thẳng, không phải tự ý làm vượt scope |
+| **#19 (Hưng)** | 🟢 Bản `client.py` **đúng và mới nhất** | LOGIN, UPLOAD/DOWNLOAD nhị phân, exit code đúng, `unpack_error`, `file_handler.py`, `resume.py`, test resume+login-scoping |
+| **#21 (Hưng)** | 🔴 **Cũ hơn PR #19, đang trùng việc** | Cũng sửa `client.py`/`file_handler.py`/`resume.py` nhưng là bản **cũ hơn** PR #19 (chưa có `unpack_error`, chưa fix exit code) — cộng thêm `progress.py`/`rate_limit.py`/`test_throttle.py` là phần PR #19 không có |
 
-### Theo cổng ngày (✅/🟡/❌)
+**Vấn đề rối hiện tại:** PR #19 và #21 là hai nhánh `client.py` tách rời, sửa độc lập — review một cái không ảnh hưởng cái kia, nên không bao giờ hội tụ. Đây là nguồn gốc chính của cảm giác "review qua lại hoài không xong".
 
-- **Ngày 0** — `config.py`: ✅ Xong
-- **Ngày 1–2** — Session tách riêng: 🟡 `session.py`/`protocol.py` xong; `file_handler.py` (Hưng) chưa merge → chặn Ngày 4
-- **Ngày 3** — Đa client + LOGIN + Namespace: 🟡 `users.py` + `server.py` threading/LOGIN xong; `storage_service.py` chưa làm → chặn Ngày 4
-- **Ngày 4** — UPLOAD/DOWNLOAD nhị phân: ❌ Chưa bắt đầu. Việc của Cường (`handle_file_upload/download` thật trong `session.py`, xem mẫu code Phần 4) bị chặn bởi `storage_service.py` (tự làm) và `file_handler.py`/`resume.py` (chờ Hưng merge)
-- **Ngày 5–7**: ❌ Chưa bắt đầu
+### Việc cần làm tiếp — xếp theo phụ thuộc, không theo ngày
 
-### Đang chặn ai, việc gì (ưu tiên xử lý trước)
+1. **Merge PR #20** vào `upstream/main`. Đã xong, đã test, đã đúng yêu cầu review — không cần sửa gì thêm, chỉ cần bấm merge.
+2. **Merge PR #19** vào `upstream/main` (không phải #21 — #19 là bản mới/đúng hơn).
+3. **Đóng hoặc rebase PR #21**: sau khi #19 merge, rebase #21 lên trên, bỏ hết phần `client.py`/`file_handler.py`/`resume.py` (đã có từ #19), chỉ giữ lại `progress.py` + `rate_limit.py` + `test_throttle.py`.
+4. **Cường**: viết `storage_service.py` (`FileLockRegistry` + `StorageService`) — không phụ thuộc PR nào, làm ngay được, song song với bước 1–3.
+5. **Sau khi #20 và #19 merge + `storage_service.py` xong**: Cường viết `handle_file_upload`/`handle_file_download` thật trong `session.py` (mẫu code ở Phần 4), test round-trip thật với `client.py` của Hưng.
+6. **Sau bước 5**: Hưng nối `progress.py`/`rate_limit.py` (từ #21) vào luồng UPLOAD/DOWNLOAD thật của `client.py`. Bình viết `test_multi.py`/stress test.
 
-1. **Cường**: viết `storage_service.py` (`FileLockRegistry` + `StorageService`) — không phụ thuộc ai, làm ngay được.
-2. **Hưng**: merge PR #19/#21 vào `main` (hoặc ít nhất `file_handler.py` + `resume.py` + `client.py`) — `session.py`'s Ngày 4 handler import thẳng từ `file_handler.py`, không có thì không viết tiếp được.
-3. Sau khi cả hai xong: Cường viết `handle_file_upload`/`handle_file_download` thật theo mẫu Phần 4, rồi test round-trip thật với client của Hưng.
+### File nào ai giữ (tham khảo nhanh)
+
+| File | Ai | Trạng thái |
+|---|---|---|
+| `protocol.py`, `config.py` | Bình | ✅ Xong, đã merge |
+| `session.py`, `server.py`, `users.py` | Cường | 🟢 Xong trên PR #20, chờ merge. `handle_file_upload/download/delete/chunk` vẫn stub — việc tiếp theo sau khi merge |
+| `storage_service.py` | Cường | ❌ Chưa viết — không chờ ai, làm được ngay |
+| `client.py`, `file_handler.py`, `resume.py` | Hưng | 🟢 Bản đúng nằm ở PR #19, chờ merge (không phải #21) |
+| `progress.py`, `rate_limit.py` | Hưng | ✅ Đã viết (trong PR #21) nhưng chưa nối vào `client.py` thật — làm sau bước 5 ở trên |
+| `tests/test_session.py` | Cường | ✅ Xong |
+| `tests/test_resume.py` | Hưng | ✅ Xong (trong PR #19) |
+| `tests/test_errors.py`, `test_roundtrip.py` | Bình | 🟡 Tạm skip có lý do — viết lại thật sau bước 5 |
+| `tests/test_multi.py`, `test_churn.py`, `test_throttle.py` | Bình/Cường/Hưng | ❌ Chưa bắt đầu — sau bước 5–6 |
 
 ---
 
