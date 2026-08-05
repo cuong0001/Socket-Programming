@@ -112,12 +112,7 @@ def process_command(client, cmd, uid):
         local_offset = get_download_offset(downloads_dir, filename)
 
         # 1. Send FILE_DOWNLOAD request
-        try:
-            download_req = P.pack_download(filename, local_offset)
-        except AttributeError:
-            print("[ERROR] pack_download is missing in protocol.py! Please ask Binh to add it as commented in PR.")
-            return True
-
+        download_req = P.pack_download(filename, local_offset)
         send_packet(client, P.FILE_DOWNLOAD, payload=download_req, user_id=uid)
 
         # 2. Wait for ACK from server containing total_size and sha256
