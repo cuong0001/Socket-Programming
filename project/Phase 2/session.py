@@ -95,6 +95,7 @@ class ProtocolError(Exception):
 
 PART_SUFFIX = ".part"
 SIDECAR_SUFFIX = ".part.json"
+BAD_SUFFIX = ".part.bad"  # quarantined upload that failed checksum verification
 
 FORBIDDEN_PARTS = ("/", "\\", "..", ":")
 
@@ -121,6 +122,8 @@ def valid_filename(name: str) -> bool:
     if name.casefold().endswith(PART_SUFFIX):
         return False
     if name.casefold().endswith(SIDECAR_SUFFIX):
+        return False
+    if name.casefold().endswith(BAD_SUFFIX):
         return False
     if name.split(".")[0].upper() in WINDOWS_DEVICE_NAMES:
         return False
@@ -224,6 +227,8 @@ class Session:
             if entry.casefold().endswith(PART_SUFFIX):
                 continue
             if entry.casefold().endswith(SIDECAR_SUFFIX):
+                continue
+            if entry.casefold().endswith(BAD_SUFFIX):
                 continue
             path = os.path.join(self.storage_dir, entry)
             if os.path.isfile(path):
