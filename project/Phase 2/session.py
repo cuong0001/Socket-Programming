@@ -111,13 +111,28 @@ def _normalized(name: str) -> str:
     return name.rstrip(". ")
 
 
-def valid_filename(name: str) -> bool:
-    """Accept only names we can store under exactly the name we were given."""
+def _safe_path_component(name: str) -> bool:
+    """True if ``name`` is safe to use as exactly one path segment.
+
+    Shared by filenames and usernames -- both get joined onto a server-side
+    directory and must not be able to add extra segments (``/``, ``\\``,
+    ``..``), name a drive (``:``), or collide with a reserved Windows device
+    name.
+    """
     if not name:
         return False
     if not name.isprintable():
         return False
     if _normalized(name) != name:
+        return False
+    if name.split(".")[0].upper() in WINDOWS_DEVICE_NAMES:
+        return False
+    return not any(part in name for part in FORBIDDEN_PARTS)
+
+
+def valid_filename(name: str) -> bool:
+    """Accept only names we can store under exactly the name we were given."""
+    if not _safe_path_component(name):
         return False
     if name.casefold().endswith(PART_SUFFIX):
         return False
@@ -125,9 +140,18 @@ def valid_filename(name: str) -> bool:
         return False
     if name.casefold().endswith(BAD_SUFFIX):
         return False
-    if name.split(".")[0].upper() in WINDOWS_DEVICE_NAMES:
-        return False
-    return not any(part in name for part in FORBIDDEN_PARTS)
+    return True
+
+
+def valid_username(name: str) -> bool:
+    """Accept only usernames safe to use as ``storage/<username>/``.
+
+    Same path-segment rules as ``valid_filename`` -- a username is joined
+    onto the storage root exactly like a filename is, so ``..``/``/``/``\\``
+    would escape it (e.g. username ``..`` writes outside ``storage/``
+    entirely) unless rejected here.
+    """
+    return _safe_path_component(name)
 
 
 # ────────────────────────────────────────────────────────────
@@ -251,7 +275,13 @@ class Session:
         incompatible ``.part`` (different total_size/sha256 in its sidecar)
         is wiped and restarted from 0; a compatible one is resumed.
         """
-        filename, total_size, _requested_offset, sha256_expected = P.unpack_upload(payload)
+        try:
+            filename, total_size, _requested_offset, sha256_expected = P.unpack_upload(payload)
+        except ValueError:
+            self.send_error(ErrorCode.MALFORMED, "malformed FILE_UPLOAD payload")
+            self.logger.command(self.ip, "UPLOAD", "ERR malformed payload")
+            return
+
         path = self.safe_path(filename)
         if path is None:
             self.send_error(ErrorCode.INVALID_FILENAME, "bad filename")
@@ -313,10 +343,33 @@ class Session:
                                                   time.perf_counter() - started, "ABORTED",
                                                   declared=total_size)
                             return
-                        offset, data = P.unpack_chunk(chunk_payload)
+                        try:
+                            offset, data = P.unpack_chunk(chunk_payload)
+                        except ValueError:
+                            self.send_error(ErrorCode.MALFORMED, "malformed FILE_CHUNK payload")
+                            self.state = State.AUTHENTICATED
+                            self.logger.transfer(self.ip, "UPLOAD", filename, received,
+                                                  time.perf_counter() - started, "ABORTED",
+                                                  declared=total_size)
+                            return
                         if offset != received:
                             self.send_error(ErrorCode.OFFSET_MISMATCH,
                                              f"expected offset {received}, got {offset}")
+                            self.state = State.AUTHENTICATED
+                            self.logger.transfer(self.ip, "UPLOAD", filename, received,
+                                                  time.perf_counter() - started, "ABORTED",
+                                                  declared=total_size)
+                            return
+                        if received + len(data) > total_size:
+                            # A chunk that overruns the size the client itself
+                            # declared at FILE_UPLOAD time -- refuse it rather
+                            # than write past the promised length and commit
+                            # a file bigger than what the ACK/digest cover.
+                            self.send_error(
+                                ErrorCode.MALFORMED,
+                                f"chunk of {len(data)} bytes at offset {offset} "
+                                f"exceeds declared size {total_size}",
+                            )
                             self.state = State.AUTHENTICATED
                             self.logger.transfer(self.ip, "UPLOAD", filename, received,
                                                   time.perf_counter() - started, "ABORTED",
@@ -362,7 +415,13 @@ class Session:
         already knows the whole-file digest from the opening ACK and
         verifies locally once ``received == total_size``.
         """
-        filename, requested_offset = P.unpack_download(payload)
+        try:
+            filename, requested_offset = P.unpack_download(payload)
+        except ValueError:
+            self.send_error(ErrorCode.MALFORMED, "malformed FILE_DOWNLOAD payload")
+            self.logger.command(self.ip, "DOWNLOAD", "ERR malformed payload")
+            return
+
         path = self.safe_path(filename)
         if path is None:
             self.send_error(ErrorCode.INVALID_FILENAME, "bad filename")
@@ -408,7 +467,13 @@ class Session:
 
     def handle_file_delete(self, payload: bytes) -> None:
         """FILE_DELETE → remove the completed file (used before re-uploading)."""
-        filename = P.unpack_filename(payload)
+        try:
+            filename = P.unpack_filename(payload)
+        except ValueError:
+            self.send_error(ErrorCode.MALFORMED, "malformed FILE_DELETE payload")
+            self.logger.command(self.ip, "DELETE", "ERR malformed payload")
+            return
+
         path = self.safe_path(filename)
         if path is None:
             self.send_error(ErrorCode.INVALID_FILENAME, "bad filename")
