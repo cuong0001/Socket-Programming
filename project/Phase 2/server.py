@@ -1,10 +1,13 @@
-import hashlib
 import os
 import socket
 import sys
-import time
-import common
+import threading
+
+import protocol as P
+from config import ServerConfig
 from logger import Logger
+from session import ErrorCode, Session
+from users import UserRegistry, UsernameInUse
 
 # python server.py 9000  [host]
 
@@ -21,304 +24,105 @@ HOST = sys.argv[2] if len(sys.argv) > 2 else ""
 # lets the test harness isolate each run in its own temp dir and keeps test
 # uploads/logs out of the real project tree. Launch from project/ for the
 # normal layout; the storage path is printed at startup so it's never a guess.
-BASE_DIR = os.getcwd()
-STORAGE_DIR = os.path.join(BASE_DIR, "storage")
-LOG_FILE = os.path.join(BASE_DIR, "logs", "server.log")
+config = ServerConfig()
+config.host = HOST
+config.port = PORT
+config.storage_dir = os.path.join(os.getcwd(), "storage")
+config.log_file = os.path.join(os.getcwd(), "logs", "server.log")
 
 # Session log (R1.4): every CONNECT/transfer/DISCONNECT line lands in
 # logs/server.log and is echoed to the console.
-logger = Logger(LOG_FILE)
+logger = Logger(config.log_file)
 
-CHUNK_SIZE = 4096
-
-# Incoming uploads are staged under this suffix and only renamed onto the
-# real name once every declared byte has arrived. Reserved: clients may not
-# use it (see valid_filename) and LIST never advertises it.
-PART_SUFFIX = ".part"
-
-# Longest command word echoed into the log. Frames may be up to 1 MiB, and
-# a rejected command is logged verbatim -- without a cap a client could flood
-# logs/server.log with one request.
-MAX_LOGGED_VERB = 20
-
-# Anything that could steer a path outside storage/ (path traversal):
-# separators, parent-dir hops, Windows drive/stream syntax
-FORBIDDEN_PARTS = ("/", "\\", "..", ":")
-
-# Windows resolves these to devices rather than files, extension and case
-# regardless ("NUL.txt" is still the null device). Behaviour varies by Windows
-# build -- some create a real file, some fail -- so refuse them everywhere and
-# keep storage/ predictable.
-WINDOWS_DEVICE_NAMES = frozenset(
-    ["CON", "PRN", "AUX", "NUL"]
-    + [f"COM{digit}" for digit in range(1, 10)]
-    + [f"LPT{digit}" for digit in range(1, 10)]
-)
+# Bounds concurrent clients (R2.7) and hands out the user_id each Session
+# is built with. One instance shared by every worker thread.
+registry = UserRegistry(config.max_clients)
 
 
-class FatalSessionError(Exception):
-    """Mid-transfer failure: the byte stream is no longer aligned on a
-    frame boundary, so this connection cannot be reused and must close."""
+def _send_error(conn, uid, code, message):
+    """Send a standalone ERROR packet, before a Session exists to do it."""
+    conn.sendall(P.pack_packet(P.ERROR, uid, P.pack_error(code, message)))
 
 
-def _normalized(name):
-    """The name the filesystem will really use.
+def negotiate_login(conn, ip):
+    """Block until the client completes LOGIN; return (uid, username).
 
-    Windows silently strips trailing dots and spaces from a path component,
-    so "report." lands on disk as "report".
+    Any opcode other than LOGIN, or a LOGIN with a bad/duplicate username,
+    gets an ERROR reply and the loop keeps listening -- the client can
+    retry without reconnecting, matching the state machine's "wrong opcode
+    never closes the connection" rule. A real disconnect surfaces as
+    ConnectionError from ``P.read_packet`` and is handled by the caller.
     """
-    return name.rstrip(". ")
-
-
-def valid_filename(name):
-    """Accept only names we can store under exactly the name we were given."""
-    if not name:
-        return False
-
-    if not name.isprintable():
-        # Control characters: a NUL makes open() raise ValueError, and a
-        # newline would let a filename forge extra lines in the log.
-        return False
-
-    if _normalized(name) != name:
-        # We would confirm one name and store another. Refusing is honest,
-        # and it also blocks "x.part." sneaking past the suffix check below.
-        return False
-
-    if name.casefold().endswith(PART_SUFFIX):
-        # Reserved for upload staging. Compared case-insensitively because
-        # Windows treats "x.PART" and "x.part" as the same file -- a
-        # client-owned "x.PART" would be destroyed by a staging file.
-        return False
-
-    if name.split(".")[0].upper() in WINDOWS_DEVICE_NAMES:
-        return False
-
-    return not any(part in name for part in FORBIDDEN_PARTS)
-
-
-def _discard(path):
-    """Remove a staging file, ignoring the case where it is already gone."""
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-
-
-def _verb(command):
-    """The command word, trimmed for the log.
-
-    The client controls this text, so cap it: a megabyte-long "command" must
-    not turn into a megabyte-long log line.
-    """
-    return command.split(" ", 1)[0][:MAX_LOGGED_VERB] or "(empty)"
-
-
-def reject(conn, ip, verb, reason):
-    """Answer 'ERR <reason>' and log the refusal.
-
-    Every command leaves exactly one record in the log (R1.4), including the
-    ones that never reach a handler.
-    """
-    common.send_frame(conn, f"ERR {reason}".encode("utf8"))
-    logger.command(ip, verb, f"ERR {reason}")
-
-
-def handle_list(conn, ip):
-    """Reply 'OK <count>' plus one 'size<TAB>name' line per stored file."""
-    lines = []
-    for entry in sorted(os.listdir(STORAGE_DIR)):
-        # An upload in progress (or one orphaned by a hard kill) is not a
-        # real file yet -- never advertise it. Case-insensitive to match
-        # valid_filename, so "X.PART" cannot pose as a finished file.
-        if entry.casefold().endswith(PART_SUFFIX):
-            continue
-        path = os.path.join(STORAGE_DIR, entry)
-        if os.path.isfile(path):
-            lines.append(f"{os.path.getsize(path)}\t{entry}")
-
-    reply = f"OK {len(lines)}"
-    if lines:
-        reply += "\n" + "\n".join(lines)
-    common.send_frame(conn, reply.encode("utf8"))
-    logger.command(ip, "LIST", f"OK {len(lines)}")
-
-
-def handle_upload(conn, ip, size, name):
-    """OK -> stream data frames into <name>.part until `size bytes` -> atomic commit -> ACK sha256 <digest>.
-
-    Bytes are staged in a .part file and only renamed onto the real name once
-    every declared byte has arrived. The destination is never opened while the
-    transfer is in flight, so an interrupted upload cannot damage an existing
-    file of the same name -- a failed upload is a no-op.
-    """
-    final_path = os.path.join(STORAGE_DIR, name)
-    part_path = final_path + PART_SUFFIX
-    try:
-        f = open(part_path, "wb")
-    except (OSError, ValueError):
-        # ValueError: a name valid_filename let through that the OS still
-        # refuses (e.g. an embedded NUL) -- answer ERR instead of dropping
-        # the connection with an unhandled exception.
-        reject(conn, ip, "UPLOAD", f"cannot open {name}")
-        return
-
-    received = 0
-    # Hash incrementally as bytes arrive -- never re-read the file (R1.3).
-    hasher = hashlib.sha256()
-    # perf_counter, not monotonic: Windows monotonic ticks in ~15.6ms steps,
-    # which reads 0.0s for small files and wrecks the KB/s column (R1.4).
-    started = time.perf_counter()
-    try:
-        with f:
-            common.send_frame(conn, b"OK")  # ready to receive
-
-            # A 0-byte file runs this loop zero times and is committed as-is
-            while received < size:
-                data = common.read_frame(conn)
-                if not data:
-                    raise FatalSessionError("empty data frame during upload")
-                if received + len(data) > size:
-                    common.send_frame(conn, b"ERR too many bytes")
-                    raise FatalSessionError(
-                        f"client declared {size} bytes but sent more"
-                    )
-                f.write(data)
-                hasher.update(data)
-                received += len(data)
-    except BaseException:
-        # Discard the staging file only. Any existing file under `name` was
-        # never opened, so it survives untouched.
-        _discard(part_path)
-        # Record how far the transfer got before failing, so an aborted
-        # upload is not an unexplained gap between CONNECT and DISCONNECT.
-        logger.transfer(
-            ip, "UPLOAD", name, received,
-            time.perf_counter() - started, "ABORTED", declared=size,
-        )
-        raise
-
-    # Every declared byte arrived, and `with` has closed the file -- Windows
-    # cannot rename an open file. os.replace is atomic and overwrites: `name`
-    # flips straight from the old complete version to the new one, with no
-    # instant where it is missing or half-written.
-    try:
-        os.replace(part_path, final_path)
-    except OSError as e:
-        # The stream is still frame-aligned, so this is recoverable: report it
-        # and keep the session alive rather than dropping the connection.
-        # Log e.strerror, not str(e) -- the latter embeds absolute paths.
-        _discard(part_path)
-        common.send_frame(conn, f"ERR cannot store {name}".encode("utf8"))
-        logger.command(
-            ip, "UPLOAD", f"ERR cannot store {name} ({e.strerror or type(e).__name__})"
-        )
-        return
-
-    duration = time.perf_counter() - started
-
-    # Terminal frame: our digest of the stored bytes. The client compares it
-    # against the digest it computed while sending -> SHA256 OK / MISMATCH.
-    common.send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf8"))
-    logger.transfer(ip, "UPLOAD", name, received, duration, "SHA256-OK")
-
-
-def handle_download(conn, ip, name):
-    """OK <size> -> send file as 4096-byte data frames -> ACK sha256 <digest>."""
-    path = os.path.join(STORAGE_DIR, name)
-    if not os.path.isfile(path):
-        reject(conn, ip, "DOWNLOAD", "no such file")
-        return
-
-    size = os.path.getsize(path)
-    common.send_frame(conn, f"OK {size}".encode("utf8"))
-
-    sent = 0
-    # Hash incrementally as bytes leave -- never re-read the file (R1.3).
-    hasher = hashlib.sha256()
-    started = time.perf_counter()
-    try:
-        with open(path, "rb") as f:
-            while sent < size:
-                chunk = f.read(min(CHUNK_SIZE, size - sent))
-                if not chunk:
-                    # The client was promised `size` bytes and counts on every
-                    # one of them; short delivery would desync the stream
-                    raise FatalSessionError(f"{name} shrank while sending")
-                common.send_frame(conn, chunk)
-                hasher.update(chunk)
-                sent += len(chunk)
-    except BaseException:
-        # Same reasoning as upload: a client that vanishes mid-download must
-        # still leave a record of what it got.
-        logger.transfer(
-            ip, "DOWNLOAD", name, sent,
-            time.perf_counter() - started, "ABORTED", declared=size,
-        )
-        raise
-
-    duration = time.perf_counter() - started
-
-    # Terminal frame: the client reads exactly `size` bytes, then this digest
-    # to verify the download -> SHA256 OK / MISMATCH.
-    common.send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf8"))
-    logger.transfer(ip, "DOWNLOAD", name, size, duration, "SHA256-OK")
-
-
-def dispatch(conn, ip, command):
-    if command == "LIST":
-        handle_list(conn, ip)
-        return
-
-    parts = command.split(" ", 2)
-
-    # UPLOAD <size> <filename> -- size first because the name may
-    # contain spaces, so the name is always the tail of the command
-    if parts[0] == "UPLOAD" and len(parts) == 3:
-        try:
-            size = int(parts[1])
-        except ValueError:
-            size = -1
-        name = parts[2]
-        if size < 0:
-            reject(conn, ip, "UPLOAD", "bad command")
-        elif not valid_filename(name):
-            reject(conn, ip, "UPLOAD", "bad filename")
-        else:
-            handle_upload(conn, ip, size, name)
-        return
-
-    # DOWNLOAD <filename>
-    if parts[0] == "DOWNLOAD" and len(parts) >= 2:
-        name = command.split(" ", 1)[1]
-        if not valid_filename(name):
-            reject(conn, ip, "DOWNLOAD", "bad filename")
-        else:
-            handle_download(conn, ip, name)
-        return
-
-    reject(conn, ip, _verb(command), "bad command")
-
-
-def serve_one(conn, addr):
-    """Serve one client until it disconnects (many commands per connection)."""
     while True:
-        command_bytes = common.read_frame(conn)
+        opcode, _uid, payload = P.read_packet(conn)
 
-        try:
-            command = command_bytes.decode("utf8")
-        except UnicodeDecodeError:
-            # The frame was still read whole, so the stream stays aligned:
-            # answer ERR and keep the session alive
-            reject(conn, addr[0], "(binary)", "bad command")
+        if opcode != P.LOGIN:
+            _send_error(conn, 0, ErrorCode.NOT_LOGGED_IN, "must LOGIN first")
             continue
 
-        dispatch(conn, addr[0], command)
+        try:
+            username, _ = P.unpack_text(payload)
+        except ValueError:
+            _send_error(conn, 0, ErrorCode.INVALID_USERNAME, "malformed LOGIN payload")
+            continue
+
+        if not username or not username.isprintable():
+            _send_error(conn, 0, ErrorCode.INVALID_USERNAME, "invalid username")
+            continue
+
+        try:
+            uid = registry.login(username)
+        except UsernameInUse:
+            _send_error(conn, 0, ErrorCode.USERNAME_IN_USE, f"{username} already online")
+            continue
+
+        conn.sendall(P.pack_packet(P.ACK, uid, P.pack_ack(P.LOGIN, uid)))
+        logger.command(ip, "LOGIN", f"OK uid={uid} user={username}")
+        return uid, username
+
+
+def serve_client(conn, addr):
+    """Worker-thread entry point: one Session per accepted connection."""
+    ip = addr[0]
+    logger.connect(ip)
+
+    if not registry.try_acquire_slot():
+        # Accept first, THEN report full -- an OS-level refusal would look
+        # identical to "server is dead" from the client's side (see the
+        # plan's classic-mistake list).
+        try:
+            _send_error(conn, 0, ErrorCode.SERVER_BUSY, "server is full")
+        except OSError:
+            pass
+        conn.close()
+        logger.disconnect(ip)
+        return
+
+    uid = None
+    try:
+        uid, username = negotiate_login(conn, ip)
+        user_storage_dir = os.path.join(config.storage_dir, username)
+        os.makedirs(user_storage_dir, exist_ok=True)
+        session = Session(conn, addr, user_storage_dir, logger,
+                           user_id=uid, username=username)
+        session.serve()
+    except ConnectionError:
+        # Normal end of a session: the client closed (cleanly or not).
+        pass
+    except Exception as e:
+        # Last line of defence: no client behaviour may kill the server.
+        logger.error(ip, f"internal error: {type(e).__name__}: {e}")
+    finally:
+        if uid is not None:
+            registry.logout(uid)
+        registry.release_slot()
+        conn.close()
+        logger.disconnect(ip)
 
 
 # Windows consoles may use a legacy codepage (cp1252): printing Vietnamese
-# error text from common.py would then raise UnicodeEncodeError inside an
-# exception handler and kill the server. Force UTF-8, never fail on print.
+# error text would then raise UnicodeEncodeError inside an exception
+# handler and kill the server. Force UTF-8, never fail on print.
 sys.stdout.reconfigure(encoding="utf8", errors="replace")
 sys.stderr.reconfigure(encoding="utf8", errors="replace")
 
@@ -326,34 +130,24 @@ sys.stderr.reconfigure(encoding="utf8", errors="replace")
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 try:
-    os.makedirs(STORAGE_DIR, exist_ok=True)
-    server.bind((HOST, PORT))
+    os.makedirs(config.storage_dir, exist_ok=True)
+    server.bind((config.host, config.port))
     server.listen(5)
     server.settimeout(1.0)  # wake up every 1s so Ctrl+C can be handled on Windows
-    print(f"[OK] Server listening on {HOST or '0.0.0.0'}:{PORT}")
-    print(f"[OK] Storage dir: {STORAGE_DIR}")
+    print(f"[OK] Server listening on {config.host or '0.0.0.0'}:{config.port}")
+    print(f"[OK] Storage dir: {config.storage_dir}")
+    print(f"[OK] Max clients: {config.max_clients}")
 
     while True:
         try:
             conn, addr = server.accept()
         except socket.timeout:
             continue  # no client yet; loop back and check for Ctrl+C
-        logger.connect(addr[0])
 
-        try:
-            serve_one(conn, addr)
-        except ConnectionError:
-            # Normal end of a session: the client closed (cleanly or not,
-            # including a kill mid-upload). The DISCONNECT line records it.
-            pass
-        except FatalSessionError as e:
-            logger.error(addr[0], f"protocol violation: {e}")
-        except Exception as e:
-            # Last line of defence: no client behaviour may kill the server
-            logger.error(addr[0], f"internal error: {type(e).__name__}: {e}")
-        finally:
-            conn.close()
-            logger.disconnect(addr[0])
+        # daemon=True: on shutdown we don't wait for threads blocked in a
+        # client's recv() -- the process exit takes them down with it.
+        thread = threading.Thread(target=serve_client, args=(conn, addr), daemon=True)
+        thread.start()
 
 except KeyboardInterrupt:
     print("\n[INFO] Server shutting down")

@@ -15,6 +15,7 @@ Hệ Thống Truyền Nhận File Qua Socket TCP — Giai Đoạn 2: Đa Client 
 
 ## MỤC LỤC
 
+- Trạng thái tiến độ (cập nhật liên tục)
 - Phần 0: Tài sản Phase 1 còn dùng được
 - Phần 1: Phân công & luật làm việc Phase 2
 - Phần 2: Ngày 1–2 (01–02/8): Gói nhị phân + Session tách riêng
@@ -26,6 +27,48 @@ Hệ Thống Truyền Nhận File Qua Socket TCP — Giai Đoạn 2: Đa Client 
 - Phần 8: Sai lầm kinh điển Phase 2
 - Phụ lục A: Bảng opcode & payload format (mini-RFC)
 - Phụ lục B: Ma trận kiểm thử & tiêu chí PASS định lượng
+
+---
+
+## TRẠNG THÁI TIẾN ĐỘ (cập nhật liên tục — theo TASK, không theo ngày)
+
+> **Đổi cách theo dõi:** lịch theo ngày (01–07/8) ở các Phần 2–7 bên dưới vẫn giữ nguyên làm **tài liệu tham khảo kỹ thuật** (mẫu code, giải thích thiết kế) — nhưng **không dùng lịch đó để tính PR nào "đúng scope" nữa**. Lý do: PR #19/#20 bị request-change nhiều vòng vì review đôi khi yêu cầu việc thuộc ngày sau (ví dụ PR #20 bị yêu cầu nối `Session` vào `server.py` — đúng ra là việc Ngày 3 — trong khi PR #20 ban đầu chỉ định làm Ngày 1–2). Đó không phải lỗi của người làm PR — review đã tiến nhanh hơn lịch. Từ giờ: merge được là merge, không chờ đúng ngày.
+
+### Sự thật hiện tại (kiểm tra trực tiếp trên `upstream/main` và các PR, không suy đoán)
+
+**`upstream/main` chỉ có đúng PR #22.** Không có gì khác được merge.
+
+| PR | Trạng thái thật | Đang chứa gì |
+|---|---|---|
+| **#22 (Bình)** | ✅ **Đã merge xong, không còn vướng.** | `protocol.py` + `config.py`, có cả `pack_download`/`unpack_error` |
+| **#20 (Cường)** | 🟢 **Sẵn sàng merge**, đang chờ merge thật | `session.py` + `server.py` (threaded, LOGIN thật) + `users.py`. Có việc "Ngày 3" là vì review PR #20 yêu cầu thẳng, không phải tự ý làm vượt scope |
+| **#19 (Hưng)** | 🟢 Bản `client.py` **đúng và mới nhất** | LOGIN, UPLOAD/DOWNLOAD nhị phân, exit code đúng, `unpack_error`, `file_handler.py`, `resume.py`, test resume+login-scoping |
+| **#21 (Hưng)** | 🔴 **Cũ hơn PR #19, đang trùng việc** | Cũng sửa `client.py`/`file_handler.py`/`resume.py` nhưng là bản **cũ hơn** PR #19 (chưa có `unpack_error`, chưa fix exit code) — cộng thêm `progress.py`/`rate_limit.py`/`test_throttle.py` là phần PR #19 không có |
+
+**Vấn đề rối hiện tại:** PR #19 và #21 là hai nhánh `client.py` tách rời, sửa độc lập — review một cái không ảnh hưởng cái kia, nên không bao giờ hội tụ. Đây là nguồn gốc chính của cảm giác "review qua lại hoài không xong".
+
+### Việc cần làm tiếp — xếp theo phụ thuộc, không theo ngày
+
+1. **Merge PR #20** vào `upstream/main`. Đã xong, đã test, đã đúng yêu cầu review — không cần sửa gì thêm, chỉ cần bấm merge.
+2. **Merge PR #19** vào `upstream/main` (không phải #21 — #19 là bản mới/đúng hơn).
+3. **Đóng hoặc rebase PR #21**: sau khi #19 merge, rebase #21 lên trên, bỏ hết phần `client.py`/`file_handler.py`/`resume.py` (đã có từ #19), chỉ giữ lại `progress.py` + `rate_limit.py` + `test_throttle.py`.
+4. **Cường**: viết `storage_service.py` (`FileLockRegistry` + `StorageService`) — không phụ thuộc PR nào, làm ngay được, song song với bước 1–3.
+5. **Sau khi #20 và #19 merge + `storage_service.py` xong**: Cường viết `handle_file_upload`/`handle_file_download` thật trong `session.py` (mẫu code ở Phần 4), test round-trip thật với `client.py` của Hưng.
+6. **Sau bước 5**: Hưng nối `progress.py`/`rate_limit.py` (từ #21) vào luồng UPLOAD/DOWNLOAD thật của `client.py`. Bình viết `test_multi.py`/stress test.
+
+### File nào ai giữ (tham khảo nhanh)
+
+| File | Ai | Trạng thái |
+|---|---|---|
+| `protocol.py`, `config.py` | Bình | ✅ Xong, đã merge |
+| `session.py`, `server.py`, `users.py` | Cường | 🟢 Xong trên PR #20, chờ merge. `handle_file_upload/download/delete/chunk` vẫn stub — việc tiếp theo sau khi merge |
+| `storage_service.py` | Cường | ❌ Chưa viết — không chờ ai, làm được ngay |
+| `client.py`, `file_handler.py`, `resume.py` | Hưng | 🟢 Bản đúng nằm ở PR #19, chờ merge (không phải #21) |
+| `progress.py`, `rate_limit.py` | Hưng | ✅ Đã viết (trong PR #21) nhưng chưa nối vào `client.py` thật — làm sau bước 5 ở trên |
+| `tests/test_session.py` | Cường | ✅ Xong |
+| `tests/test_resume.py` | Hưng | ✅ Xong (trong PR #19) |
+| `tests/test_errors.py`, `test_roundtrip.py` | Bình | 🟡 Tạm skip có lý do — viết lại thật sau bước 5 |
+| `tests/test_multi.py`, `test_churn.py`, `test_throttle.py` | Bình/Cường/Hưng | ❌ Chưa bắt đầu — sau bước 5–6 |
 
 ---
 
