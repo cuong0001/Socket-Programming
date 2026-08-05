@@ -63,6 +63,8 @@ class RunningServer:
                 str(CLIENT_FILE),
                 "127.0.0.1",
                 str(self.port),
+                "--username",
+                "alice",
                 *arguments,
             ],
             cwd=self.work_dir,
