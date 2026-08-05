@@ -14,20 +14,27 @@ from common import read_frame, send_frame
 
 def fake_server(sock):
     """Minimal fake TCP server: Sends corrupted data but a valid SHA-256 digest."""
+    import protocol as P
     conn, _ = sock.accept()
     with conn:
-        req = read_frame(conn)
-        # Polish: Fail fast if the client sends an unexpected command
-        assert req.decode("utf-8").startswith("DOWNLOAD"), "Client did not send DOWNLOAD"
+        # 1. Receive LOGIN
+        op, _, _ = P.read_packet(conn)
+        assert op == P.LOGIN, f"Expected LOGIN, got {op}"
+        conn.sendall(P.pack_packet(P.ACK, 0, P.pack_ack(P.LOGIN, 1234)))
 
-        send_frame(conn, b"OK 10")
+        # 2. Receive FILE_DOWNLOAD
+        op, _, payload = P.read_packet(conn)
+        assert op == P.FILE_DOWNLOAD, f"Client did not send DOWNLOAD, got {op}"
 
+        # 3. Send ACK with size and sha256
         original_data = b"\x00" * 10
         hasher = hashlib.sha256(original_data)
+        ack_payload = P.pack_ack(P.FILE_DOWNLOAD, 10) + hasher.digest()
+        conn.sendall(P.pack_packet(P.ACK, 1234, ack_payload))
 
-        send_frame(conn, b"\x01" * 10)
-
-        send_frame(conn, f"ACK sha256 {hasher.hexdigest()}".encode("utf-8"))
+        # 4. Send corrupted chunk
+        chunk_payload = P.pack_chunk(0, b"\x01" * 10)
+        conn.sendall(P.pack_packet(P.FILE_CHUNK, 1234, chunk_payload))
 
 class TestChecksumMismatch(unittest.TestCase):
     def test_client_catches_mismatch(self):

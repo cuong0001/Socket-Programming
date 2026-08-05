@@ -17,14 +17,23 @@ def send_command(sock: socket.socket, command: str) -> str:
     return read_frame(sock).decode("utf-8")
 
 
-def interrupt_upload(port: int, command: bytes, partial: bytes) -> None:
+def interrupt_upload(port: int, filename: str, total_size: int, partial: bytes) -> None:
+    import protocol as P
+    import hashlib
     sock = socket.create_connection(("127.0.0.1", port))
     try:
-        send_frame(sock, command)
-        reply = read_frame(sock).decode("utf-8")
-        if not reply.startswith("OK"):
-            raise AssertionError(f"Server did not accept upload: {reply}")
-        send_frame(sock, partial)
+        sock.sendall(P.pack_packet(P.LOGIN, 0, P.pack_text("alice")))
+        op, _, payload = P.read_packet(sock)
+        _, uid, _ = P.unpack_ack(payload)
+
+        fake_hash = hashlib.sha256(b"fake").digest()
+        upload_req = P.pack_upload(filename, total_size, 0) + fake_hash
+        sock.sendall(P.pack_packet(P.FILE_UPLOAD, uid, upload_req))
+
+        op, _, _ = P.read_packet(sock)
+
+        chunk = P.pack_chunk(0, partial)
+        sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, chunk))
     finally:
         sock.close()
 
@@ -58,7 +67,7 @@ class ErrorHandlingTests(unittest.TestCase):
         partial = b"only a small part"
         interrupt_upload(
             self.server.port,
-            b"UPLOAD 100000 broken.bin",
+            "broken.bin", 100000,
             partial,
         )
 
@@ -87,7 +96,7 @@ class ErrorHandlingTests(unittest.TestCase):
 
         interrupt_upload(
             self.server.port,
-            b"UPLOAD 100000 existing.bin",
+            "existing.bin", 100000,
             b"incomplete replacement",
         )
 
