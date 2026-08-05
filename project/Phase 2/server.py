@@ -104,6 +104,15 @@ def serve_client(conn, addr):
         logger.disconnect(ip)
         return
 
+    # No password means the username itself is the only thing arbitrating a
+    # session, so a stuck LOGIN or a peer that dies without sending FIN
+    # (crash, power loss, network partition -- as opposed to a normal close,
+    # which the OS turns into a prompt ConnectionError) would otherwise hold
+    # its capacity slot and username hostage forever. An idle timeout on the
+    # socket bounds that: no bytes for `socket_timeout` seconds and the next
+    # recv() raises, which the except clause below treats like a disconnect.
+    conn.settimeout(config.socket_timeout)
+
     uid = None
     try:
         uid, username = negotiate_login(conn, ip)
@@ -114,6 +123,8 @@ def serve_client(conn, addr):
     except ConnectionError:
         # Normal end of a session: the client closed (cleanly or not).
         pass
+    except socket.timeout:
+        logger.error(ip, f"idle timeout after {config.socket_timeout:.0f}s, closing")
     except Exception as e:
         # Last line of defence: no client behaviour may kill the server.
         logger.error(ip, f"internal error: {type(e).__name__}: {e}")
