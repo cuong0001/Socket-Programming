@@ -200,6 +200,8 @@ class Phase2LoginAndNamespaceTests(unittest.TestCase):
             storage = self.server.work_dir / "storage"
             alice_file = storage / "binh-delete-alice" / filename
             bob_file = storage / "binh-delete-bob" / filename
+            alice_file.parent.mkdir(parents=True, exist_ok=True)
+            bob_file.parent.mkdir(parents=True, exist_ok=True)
             alice_file.write_bytes(b"alice")
             bob_file.write_bytes(b"bob")
 
@@ -428,6 +430,96 @@ class ErrorHandlingTests(unittest.TestCase):
             self.assertEqual(op, P.ERROR)
             code, _msg = P.unpack_error(payload)
             self.assertEqual(code, 0x006E)  # INVALID_FILENAME
+
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
+
+
+class SecurityAndRobustnessTests(unittest.TestCase):
+    """Regression coverage for the PR #24 review: username path traversal,
+    oversized upload chunks, and malformed transfer payloads killing the
+    session instead of returning a clean ERROR."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.server = RunningServer().start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.stop()
+
+    def test_username_path_traversal_is_rejected(self) -> None:
+        for n, bad_username in enumerate(("..", "../escape", "a/b", "a\\b", "C:x")):
+            with self.subTest(username=bad_username):
+                with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+                    sock.sendall(P.pack_packet(P.LOGIN, 0, P.pack_text(bad_username)))
+                    op, _, payload = P.read_packet(sock)
+                    self.assertEqual(op, P.ERROR)
+                    code, _msg = P.unpack_error(payload)
+                    self.assertEqual(code, 0x0066)  # INVALID_USERNAME
+
+                    # Connection must still be usable afterward. Unique name
+                    # per iteration -- the previous connection's LOGOUT may
+                    # not have been processed by the server yet.
+                    uid = login(sock, f"traversal-retry-{n}")
+                    self.assertGreater(uid, 0)
+
+        # No file/directory should have escaped storage/ into work_dir.
+        self.assertFalse((self.server.work_dir / "escaped.bin").exists())
+        self.assertFalse((self.server.work_dir / "escape").exists())
+
+    def test_oversized_chunk_is_rejected_and_not_committed(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "chunk-overflow")
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("small.bin", 3, 0)))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ACK)
+
+            # Declares total_size=3 but sends 5 bytes.
+            sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, P.pack_chunk(0, b"ABCDE")))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
+            self.assertEqual(P.unpack_file_list_response(payload), [])
+
+        storage = self.server.work_dir / "storage" / "chunk-overflow"
+        self.assertFalse((storage / "small.bin").exists())
+
+    def test_malformed_transfer_payloads_return_malformed_and_keep_session_alive(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "malformed-payloads")
+
+            for opcode in (P.FILE_UPLOAD, P.FILE_DOWNLOAD, P.FILE_DELETE):
+                with self.subTest(opcode=opcode):
+                    sock.sendall(P.pack_packet(opcode, uid, b"\x00"))
+                    op, _, payload = P.read_packet(sock)
+                    self.assertEqual(op, P.ERROR)
+                    code, _msg = P.unpack_error(payload)
+                    self.assertEqual(code, 0x0064)  # MALFORMED
+
+                    sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+                    op, _, _ = P.read_packet(sock)
+                    self.assertEqual(op, P.FILE_LIST_RESP)
+
+    def test_malformed_chunk_mid_upload_returns_malformed_and_keeps_session_alive(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "malformed-chunk")
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("chunked.bin", 10, 0)))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ACK)
+
+            # Shorter than the 8-byte offset field unpack_chunk requires.
+            sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, b"\x00\x00\x00"))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+            code, _msg = P.unpack_error(payload)
+            self.assertEqual(code, 0x0064)  # MALFORMED
 
             sock.sendall(P.pack_packet(P.FILE_LIST, uid))
             op, _, _ = P.read_packet(sock)

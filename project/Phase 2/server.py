@@ -6,7 +6,7 @@ import threading
 import protocol as P
 from config import ServerConfig
 from logger import Logger
-from session import ErrorCode, Session
+from session import ErrorCode, Session, valid_username
 from storage_service import FileLockRegistry, StorageService
 from users import UserRegistry, UsernameInUse
 
@@ -72,7 +72,7 @@ def negotiate_login(conn, ip):
             _send_error(conn, 0, ErrorCode.INVALID_USERNAME, "malformed LOGIN payload")
             continue
 
-        if not username or not username.isprintable():
+        if not valid_username(username):
             _send_error(conn, 0, ErrorCode.INVALID_USERNAME, "invalid username")
             continue
 
