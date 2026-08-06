@@ -1,3 +1,4 @@
+import hashlib
 import socket
 import sys
 import unittest
@@ -9,49 +10,34 @@ from helpers import RunningServer
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR))
 
-from common import read_frame, send_frame
+import protocol as P
 
 
-def send_command(sock: socket.socket, command: str) -> str:
-    send_frame(sock, command.encode("utf-8"))
-    return read_frame(sock).decode("utf-8")
+def login(sock: socket.socket, username: str) -> int:
+    sock.sendall(P.pack_packet(P.LOGIN, 0, P.pack_text(username)))
+    op, uid, _payload = P.read_packet(sock)
+    assert op == P.ACK, f"LOGIN failed: opcode {op}"
+    return uid
 
 
-def interrupt_upload(port: int, filename: str, total_size: int, partial: bytes) -> None:
-    import protocol as P
-    import hashlib
+def interrupt_upload(port: int, filename: str, total_size: int, partial: bytes,
+                      username: str = "alice") -> None:
+    """LOGIN, start a FILE_UPLOAD, send one chunk, then disconnect without finishing."""
     sock = socket.create_connection(("127.0.0.1", port))
     try:
-        sock.sendall(P.pack_packet(P.LOGIN, 0, P.pack_text("alice")))
-        op, _, payload = P.read_packet(sock)
-        _, uid, _ = P.unpack_ack(payload)
+        uid = login(sock, username)
 
         fake_hash = hashlib.sha256(b"fake").digest()
-        upload_req = P.pack_upload(filename, total_size, 0) + fake_hash
+        upload_req = P.pack_upload(filename, total_size, 0, fake_hash)
         sock.sendall(P.pack_packet(P.FILE_UPLOAD, uid, upload_req))
-
         op, _, _ = P.read_packet(sock)
+        assert op == P.ACK, f"FILE_UPLOAD start failed: opcode {op}"
 
-        chunk = P.pack_chunk(0, partial)
-        sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, chunk))
+        sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, P.pack_chunk(0, partial)))
     finally:
         sock.close()
 
 
-@unittest.skip(
-    "Blocked by the Day 3 server rewiring (PR #20, session.py): server.py "
-    "now only speaks the Phase 2 binary protocol and requires a LOGIN "
-    "packet before anything else. client.py in this repo hasn't been "
-    "updated to send LOGIN yet, so every connection here gets its old "
-    "Phase 1 text frame reset by the server -- ConnectionResetError, not "
-    "a meaningful test result. Also, every assertion in this class relies "
-    "on the real Phase 1 UPLOAD path (staging file, atomic commit, "
-    "filename validation during upload), and Session.handle_file_upload "
-    "is still an intentional stub (Day 4). Re-enable once client.py "
-    "speaks the binary protocol (LOGIN) and real UPLOAD lands in Session. "
-    "Bad-opcode/malformed-payload coverage for the new protocol lives in "
-    "tests/test_session.py in the meantime."
-)
 class ErrorHandlingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -61,21 +47,31 @@ class ErrorHandlingTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.server.stop()
 
-    def test_bad_commands_return_err_and_session_stays_alive(self) -> None:
-        bad_commands = [
-            "HELLO",
-            "UPLOAD",
-            "UPLOAD not-a-number data.bin",
-            "DOWNLOAD",
-            "DOWNLOAD ../secret",
-        ]
-
+    def test_bad_requests_return_error_and_session_stays_alive(self) -> None:
         with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
-            for command in bad_commands:
-                with self.subTest(command=command):
-                    self.assertTrue(send_command(sock, command).startswith("ERR"))
+            uid = login(sock, "alice")
 
-            self.assertTrue(send_command(sock, "LIST").startswith("OK"))
+            # Opcode nobody defines.
+            sock.sendall(P.pack_packet(0x9999, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+
+            # Path traversal in the upload filename.
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("../secret", 10, 0)))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+
+            # Download of a file that was never uploaded.
+            sock.sendall(P.pack_packet(
+                P.FILE_DOWNLOAD, uid, P.pack_download("does-not-exist.bin")))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+
+            # None of the above should have killed the session.
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
 
     def test_disconnect_mid_upload_does_not_kill_server(self) -> None:
         partial = b"only a small part"
@@ -101,54 +97,165 @@ class ErrorHandlingTests(unittest.TestCase):
         self.assertIn(f"| {len(partial)}B/100000B |", matching_lines[0])
         self.assertTrue(matching_lines[0].endswith("| ABORTED"))
 
-    def test_interrupted_overwrite_preserves_existing_file(self) -> None:
-        storage = self.server.work_dir / "storage"
+    def test_upload_of_existing_filename_is_refused_without_touching_it(self) -> None:
+        """R2.7 duplicate policy: a complete file is never overwritten by
+        UPLOAD -- the request is refused with FILE_EXISTS before any
+        staging begins, so there's no window where an interrupted transfer
+        could corrupt the original (stronger than "interrupted overwrite
+        preserves the file": the overwrite is never even allowed to start).
+        """
+        # run_client always logs in as "alice" (see helpers.py) -- storage
+        # is namespaced per user, so the file lives under storage/alice/.
+        storage = self.server.work_dir / "storage" / "alice"
+        storage.mkdir(parents=True, exist_ok=True)
         target = storage / "existing.bin"
         staging = storage / "existing.bin.part"
         original = b"the complete original file"
         target.write_bytes(original)
 
-        interrupt_upload(
-            self.server.port,
-            "existing.bin", 100000,
-            b"incomplete replacement",
-        )
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "alice")
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("existing.bin", 100000, 0)))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+            code, _msg = P.unpack_error(payload)
+            self.assertEqual(code, 0x0070)  # FILE_EXISTS
 
-        # LIST is also a synchronization point: the single-threaded server
-        # cannot answer it until cleanup for the disconnected upload finishes.
-        listing = self.server.run_client("LIST")
-        self.assertEqual(listing.returncode, 0, listing.stdout + listing.stderr)
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
+
         self.assertEqual(target.read_bytes(), original)
         self.assertFalse(staging.exists())
-        self.assertIn("existing.bin", listing.stdout)
 
     def test_part_suffix_is_rejected_case_insensitively(self) -> None:
-        storage = self.server.work_dir / "storage"
+        storage = self.server.work_dir / "storage" / "alice"
+        storage.mkdir(parents=True, exist_ok=True)
         target = storage / "legacy.PART"
         original = b"existing uppercase-suffix file"
         target.write_bytes(original)
 
-        with socket.create_connection(
-            ("127.0.0.1", self.server.port)
-        ) as sock:
-            self.assertEqual(
-                send_command(sock, "UPLOAD 100000 legacy.PART"),
-                "ERR bad filename",
-            )
-            self.assertTrue(send_command(sock, "LIST").startswith("OK"))
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "alice")
+
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("legacy.PART", 100000, 0)))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+            code, _msg = P.unpack_error(payload)
+            self.assertEqual(code, 0x006E)  # INVALID_FILENAME
+
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
 
         self.assertEqual(target.read_bytes(), original)
 
-    def test_nul_filename_returns_err_and_session_stays_alive(self) -> None:
-        with socket.create_connection(
-            ("127.0.0.1", self.server.port)
-        ) as sock:
-            send_frame(sock, b"UPLOAD 1 bad\x00name")
-            self.assertEqual(
-                read_frame(sock).decode("utf-8"),
-                "ERR bad filename",
-            )
-            self.assertTrue(send_command(sock, "LIST").startswith("OK"))
+    def test_nul_filename_returns_error_and_session_stays_alive(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "alice")
+
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("bad\x00name", 1, 0)))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+            code, _msg = P.unpack_error(payload)
+            self.assertEqual(code, 0x006E)  # INVALID_FILENAME
+
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
+
+
+class SecurityAndRobustnessTests(unittest.TestCase):
+    """Regression coverage for the PR #24 review: username path traversal,
+    oversized upload chunks, and malformed transfer payloads killing the
+    session instead of returning a clean ERROR."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.server = RunningServer().start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.stop()
+
+    def test_username_path_traversal_is_rejected(self) -> None:
+        for n, bad_username in enumerate(("..", "../escape", "a/b", "a\\b", "C:x")):
+            with self.subTest(username=bad_username):
+                with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+                    sock.sendall(P.pack_packet(P.LOGIN, 0, P.pack_text(bad_username)))
+                    op, _, payload = P.read_packet(sock)
+                    self.assertEqual(op, P.ERROR)
+                    code, _msg = P.unpack_error(payload)
+                    self.assertEqual(code, 0x0066)  # INVALID_USERNAME
+
+                    # Connection must still be usable afterward. Unique name
+                    # per iteration -- the previous connection's LOGOUT may
+                    # not have been processed by the server yet.
+                    uid = login(sock, f"traversal-retry-{n}")
+                    self.assertGreater(uid, 0)
+
+        # No file/directory should have escaped storage/ into work_dir.
+        self.assertFalse((self.server.work_dir / "escaped.bin").exists())
+        self.assertFalse((self.server.work_dir / "escape").exists())
+
+    def test_oversized_chunk_is_rejected_and_not_committed(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "chunk-overflow")
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("small.bin", 3, 0)))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ACK)
+
+            # Declares total_size=3 but sends 5 bytes.
+            sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, P.pack_chunk(0, b"ABCDE")))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
+            self.assertEqual(P.unpack_file_list_response(payload), [])
+
+        storage = self.server.work_dir / "storage" / "chunk-overflow"
+        self.assertFalse((storage / "small.bin").exists())
+
+    def test_malformed_transfer_payloads_return_malformed_and_keep_session_alive(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "malformed-payloads")
+
+            for opcode in (P.FILE_UPLOAD, P.FILE_DOWNLOAD, P.FILE_DELETE):
+                with self.subTest(opcode=opcode):
+                    sock.sendall(P.pack_packet(opcode, uid, b"\x00"))
+                    op, _, payload = P.read_packet(sock)
+                    self.assertEqual(op, P.ERROR)
+                    code, _msg = P.unpack_error(payload)
+                    self.assertEqual(code, 0x0064)  # MALFORMED
+
+                    sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+                    op, _, _ = P.read_packet(sock)
+                    self.assertEqual(op, P.FILE_LIST_RESP)
+
+    def test_malformed_chunk_mid_upload_returns_malformed_and_keeps_session_alive(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.server.port)) as sock:
+            uid = login(sock, "malformed-chunk")
+            sock.sendall(P.pack_packet(
+                P.FILE_UPLOAD, uid, P.pack_upload("chunked.bin", 10, 0)))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.ACK)
+
+            # Shorter than the 8-byte offset field unpack_chunk requires.
+            sock.sendall(P.pack_packet(P.FILE_CHUNK, uid, b"\x00\x00\x00"))
+            op, _, payload = P.read_packet(sock)
+            self.assertEqual(op, P.ERROR)
+            code, _msg = P.unpack_error(payload)
+            self.assertEqual(code, 0x0064)  # MALFORMED
+
+            sock.sendall(P.pack_packet(P.FILE_LIST, uid))
+            op, _, _ = P.read_packet(sock)
+            self.assertEqual(op, P.FILE_LIST_RESP)
 
 
 if __name__ == "__main__":

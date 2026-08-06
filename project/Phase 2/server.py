@@ -6,7 +6,8 @@ import threading
 import protocol as P
 from config import ServerConfig
 from logger import Logger
-from session import ErrorCode, Session
+from session import ErrorCode, Session, valid_username
+from storage_service import FileLockRegistry, StorageService
 from users import UserRegistry, UsernameInUse
 
 # python server.py 9000  [host]
@@ -38,6 +39,11 @@ logger = Logger(config.log_file)
 # is built with. One instance shared by every worker thread.
 registry = UserRegistry(config.max_clients)
 
+# Per-(username, filename) locks and sidecar I/O, shared by every Session so
+# two connections uploading the same file can't corrupt each other (R2.3/R2.7).
+file_locks = FileLockRegistry()
+storage = StorageService(config.storage_dir)
+
 
 def _send_error(conn, uid, code, message):
     """Send a standalone ERROR packet, before a Session exists to do it."""
@@ -66,7 +72,7 @@ def negotiate_login(conn, ip):
             _send_error(conn, 0, ErrorCode.INVALID_USERNAME, "malformed LOGIN payload")
             continue
 
-        if not username or not username.isprintable():
+        if not valid_username(username):
             _send_error(conn, 0, ErrorCode.INVALID_USERNAME, "invalid username")
             continue
 
@@ -98,17 +104,27 @@ def serve_client(conn, addr):
         logger.disconnect(ip)
         return
 
+    # No password means the username itself is the only thing arbitrating a
+    # session, so a stuck LOGIN or a peer that dies without sending FIN
+    # (crash, power loss, network partition -- as opposed to a normal close,
+    # which the OS turns into a prompt ConnectionError) would otherwise hold
+    # its capacity slot and username hostage forever. An idle timeout on the
+    # socket bounds that: no bytes for `socket_timeout` seconds and the next
+    # recv() raises, which the except clause below treats like a disconnect.
+    conn.settimeout(config.socket_timeout)
+
     uid = None
     try:
         uid, username = negotiate_login(conn, ip)
-        user_storage_dir = os.path.join(config.storage_dir, username)
-        os.makedirs(user_storage_dir, exist_ok=True)
-        session = Session(conn, addr, user_storage_dir, logger,
-                           user_id=uid, username=username)
+        session = Session(conn, addr, storage.user_dir(username), logger,
+                           user_id=uid, username=username,
+                           file_lock_registry=file_locks, storage_service=storage)
         session.serve()
     except ConnectionError:
         # Normal end of a session: the client closed (cleanly or not).
         pass
+    except socket.timeout:
+        logger.error(ip, f"idle timeout after {config.socket_timeout:.0f}s, closing")
     except Exception as e:
         # Last line of defence: no client behaviour may kill the server.
         logger.error(ip, f"internal error: {type(e).__name__}: {e}")
