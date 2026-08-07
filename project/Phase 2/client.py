@@ -9,6 +9,9 @@ import argparse
 from progress import ProgressRenderer
 from rate_limit import TokenBucket
 
+sys.stdout.reconfigure(encoding="utf8", errors="replace")
+sys.stderr.reconfigure(encoding="utf8", errors="replace")
+
 def send_packet(sock, opcode, payload=b"", user_id=0):
     sock.sendall(P.pack_packet(opcode, user_id, payload))
 
@@ -297,10 +300,13 @@ def main():
 
     except ConnectionRefusedError:
         print("[ERROR] Connection refused")
+        sys.exit(1)
     except ConnectionError as e:
         print(f"[ERROR] Connection lost during transfer: {e}")
+        sys.exit(1)
     except Exception as e:
         print(f"[ERROR] Unexpected error: {e}")
+        sys.exit(1)
     finally:
         client.close()
         print("[INFO] Connection closed")

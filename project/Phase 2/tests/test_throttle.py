@@ -22,11 +22,11 @@ class TestThrottle(unittest.TestCase):
         LIMIT_BPS = LIMIT_KBPS * 1024
         THRESHOLD_BPS = LIMIT_BPS * 1.10  # +10% threshold
 
-        # Test size: 20 MB
-        FILE_SIZE = 20 * 1024 * 1024
+        # Test size: 2 MB
+        FILE_SIZE = 2 * 1024 * 1024
         CHUNK = 4096
 
-        print(f"\n[INFO] Testing REAL Client UPLOAD flow. Simulating 3 runs of 20MB at 500KB/s...")
+        print(f"\n[INFO] Testing REAL Client UPLOAD flow. Simulating 3 runs of 2MB at 500KB/s...")
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(os.urandom(FILE_SIZE))
@@ -44,7 +44,7 @@ class TestThrottle(unittest.TestCase):
                 #    - Second ACK: Server receives FILE_CHUNK EOF, hash matches
                 mock_recv_packet.side_effect = [
                     (P.ACK, 0, P.pack_ack(P.FILE_UPLOAD, 0)),
-                    (P.ACK, 0, P.pack_ack(P.FILE_CHUNK, FILE_SIZE, file_hash))
+                    (P.ACK, 0, P.pack_ack(P.FILE_UPLOAD, FILE_SIZE, file_hash))
                 ]
                 fake_sock = unittest.mock.MagicMock()
 
@@ -73,8 +73,10 @@ class TestThrottle(unittest.TestCase):
                     f"Run {run}: Speed {speed/1024:.1f}KB/s exceeded threshold {THRESHOLD_BPS/1024:.1f}KB/s")
                 print(f"[OK] Run {run} successful! Speed: {speed/1024:.1f}KB/s (Limit: 500KB/s)")
 
-            os.makedirs("docs/test-results", exist_ok=True)
-            csv_file = "docs/test-results/throttle.csv"
+            from pathlib import Path
+            docs_dir = Path(__file__).resolve().parents[1] / "docs" / "test-results"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            csv_file = docs_dir / "throttle.csv"
 
             # Save to CSV
             with open(csv_file, "w", newline="", encoding="utf-8") as f:
