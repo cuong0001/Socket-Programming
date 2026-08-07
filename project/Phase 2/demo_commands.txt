@@ -1,36 +1,36 @@
-Demo Phase 2 -- lenh copy-paste theo tung terminal
+Demo Phase 2 -- lệnh copy-paste theo từng terminal
 ====================================================
-Theo kich ban demo trong docs/ke_hoach_phase2.md (Phan 7). Chay tu thu muc
-`project/Phase 2/`. Dat ten terminal theo vai tro (Server / Alice / Bob /
-Carol / Dave / Overflow) de de theo doi khi trinh chieu.
+Theo kịch bản demo trong docs/ke_hoach_phase2.md (Phần 7). Chạy từ thư mục
+`project/Phase 2/`. Đặt tên terminal theo vai trò (Server / Alice / Bob /
+Carol / Dave / Overflow) để dễ theo dõi khi trình chiếu.
 
-TOAN BO trinh tu duoi day da duoc chay thu that (raw socket, khong doan)
-truoc khi dua vao file nay -- moi opcode/error code ghi ra la ket qua
-that, khong phai suy doan tu doc code.
+TOÀN BỘ trình tự dưới đây đã được chạy thử thật (raw socket, không đoán)
+trước khi đưa vào file này -- mọi opcode/error code ghi ra là kết quả
+thật, không phải suy đoán từ đọc code.
 
-Ca demo dung MOT server duy nhat, --max-clients=4:
-  - "LOGIN 3 user" cua Doan 1 (Alice/Bob/Carol) dung dung 3/4 slot, con
-    du 1 slot trong -- CO CHU DICH, de phan (c) o Doan 2 con cho de
-    LOGIN trung ten di qua duoc buoc kiem tra capacity va thuc su cham
-    toi buoc kiem tra username.
-  - Neu dung max_clients=3 (het slot ngay tu Doan 1), LOGIN trung ten se
-    bi tu choi SERVER_BUSY (kiem tra capacity truoc LOGIN) thay vi
-    USERNAME_IN_USE nhu du dinh -- da tu kiem chung loi nay truoc khi
-    sua, xem "Sai lam da tranh" o cuoi file.
+Cả demo dùng MỘT server duy nhất, --max-clients=4:
+  - "LOGIN 3 user" của Đoạn 1 (Alice/Bob/Carol) dùng đúng 3/4 slot, còn
+    dư 1 slot trống -- CÓ CHỦ ĐÍCH, để phần (c) ở Đoạn 2 còn chỗ để
+    LOGIN trùng tên đi qua được bước kiểm tra capacity và thực sự chạm
+    tới bước kiểm tra username.
+  - Nếu dùng max_clients=3 (hết slot ngay từ Đoạn 1), LOGIN trùng tên sẽ
+    bị từ chối SERVER_BUSY (kiểm tra capacity trước LOGIN) thay vì
+    USERNAME_IN_USE như dự định -- đã tự kiểm chứng lỗi này trước khi
+    sửa, xem "Sai lầm đã tránh" ở cuối file.
 
 ----------------------------------------------------------------------
-[TERMINAL: Server]  (giu chay xuyen suot demo)
+[TERMINAL: Server]  (giữ chạy xuyên suốt demo)
 ----------------------------------------------------------------------
 python server.py 9000 "" 4
-REM  "" = bind moi interface (INADDR_ANY); 4 = max_clients.
-REM  Log truc tiep tai console + logs/server.log.
+REM  "" = bind mọi interface (INADDR_ANY); 4 = max_clients.
+REM  Log trực tiếp tại console + logs/server.log.
 
-TRUOC DEMO -- chay 1 lan de co san file test:
+TRƯỚC DEMO -- chạy 1 lần để có sẵn file test:
 python testdata\make_testdata.py
 
 
 ======================================================================
-DOAN 1 (0:45-2:10) -- Cuong: khoi server, LOGIN 3 user, namespace rieng,
+ĐOẠN 1 (0:45-2:10) -- Cường: khởi server, LOGIN 3 user, namespace riêng,
                               upload/download song song
 ======================================================================
 
@@ -38,75 +38,75 @@ DOAN 1 (0:45-2:10) -- Cuong: khoi server, LOGIN 3 user, namespace rieng,
 python client.py 127.0.0.1 9000 --username alice
   UPLOAD testdata\512b.bin
   LIST
-REM  Giu terminal nay mo xuyen suot Doan 1 va Doan 2 -- can session Alice
-REM  con song de demo USERNAME_IN_USE va FILE_EXISTS o Doan 2.
+REM  Giữ terminal này mở xuyên suốt Đoạn 1 và Đoạn 2 -- cần session Alice
+REM  còn sống để demo USERNAME_IN_USE và FILE_EXISTS ở Đoạn 2.
 
 [TERMINAL: Bob]
 python client.py 127.0.0.1 9000 --username bob
   UPLOAD testdata\512b.bin
   LIST
-REM  Bob upload CUNG TEN FILE voi Alice -- khong xung dot vi khac
-REM  namespace (storage/alice/ vs storage/bob/). Bob go "LIST" chi thay
-REM  file cua minh, khong thay file cua Alice.
+REM  Bob upload CÙNG TÊN FILE với Alice -- không xung đột vì khác
+REM  namespace (storage/alice/ vs storage/bob/). Bob gõ "LIST" chỉ thấy
+REM  file của mình, không thấy file của Alice.
 
 [TERMINAL: Carol]
 python client.py 127.0.0.1 9000 --username carol
   LIST
-REM  Giu terminal nay mo -- day la slot thu 3/4. Con 1 slot trong.
+REM  Giữ terminal này mở -- đây là slot thứ 3/4. Còn 1 slot trống.
 
 
 ======================================================================
-DOAN 2 (6:20-7:10) -- Cuong: USERNAME_IN_USE, FILE_EXISTS, SERVER_BUSY
+ĐOẠN 2 (6:20-7:10) -- Cường: USERNAME_IN_USE, FILE_EXISTS, SERVER_BUSY
 ======================================================================
 
---- (a) 2 client cung username -> USERNAME_IN_USE (KHONG PHAI FILE_BUSY) ---
-[TERMINAL: Dave-thu]  (dung 1 lan roi dong)
+--- (a) 2 client cùng username -> USERNAME_IN_USE (KHÔNG PHẢI FILE_BUSY) ---
+[TERMINAL: Dave-thử]  (dùng 1 lần rồi đóng)
 python client.py 127.0.0.1 9000 --username alice "LIST"
-REM  Ket qua da xac nhan: ERROR 0x0069 "alice already online". Con slot
-REM  trong (3/4 dang dung) nen lenh nay di qua duoc buoc capacity va
-REM  thuc su cham buoc kiem tra username -- dung la USERNAME_IN_USE,
-REM  khong phai SERVER_BUSY.
-REM  Giai thich ngan (~15s): FILE_BUSY (0x0079) co ton tai trong
-REM  protocol (FileLockRegistry timeout) nhung KHONG THE quan sat duoc
-REM  qua giao thuc that, vi UserRegistry chi cho 1 session/username --
-REM  2 session cung ten khong bao gio cung ton tai de tranh 1 file lock.
-REM  Da xac nhan bang tests/test_file_busy.py (chi tiet + ly do thiet ke:
-REM  docs/report_cuong_server_lock_duplicate.md, muc 2.4).
+REM  Kết quả đã xác nhận: ERROR 0x0069 "alice already online". Còn slot
+REM  trống (3/4 đang dùng) nên lệnh này đi qua được bước capacity và
+REM  thực sự chạm bước kiểm tra username -- đúng là USERNAME_IN_USE,
+REM  không phải SERVER_BUSY.
+REM  Giải thích ngắn (~15s): FILE_BUSY (0x0079) có tồn tại trong
+REM  protocol (FileLockRegistry timeout) nhưng KHÔNG THỂ quan sát được
+REM  qua giao thức thật, vì UserRegistry chỉ cho 1 session/username --
+REM  2 session cùng tên không bao giờ cùng tồn tại để tranh 1 file lock.
+REM  Đã xác nhận bằng tests/test_file_busy.py (chi tiết + lý do thiết kế:
+REM  docs/report_cuong_server_lock_duplicate.md, mục 2.4).
 
---- (b) Upload trung ten file hoan chinh -> FILE_EXISTS ---
+--- (b) Upload trùng tên file hoàn chỉnh -> FILE_EXISTS ---
 [TERMINAL: Alice]
   UPLOAD testdata\512b.bin
-REM  File nay Alice da upload xong o Doan 1 -> server tu choi ngay
-REM  (ERROR 0x0070 "file exists -- DELETE first"), KHONG dung lai file
-REM  goc. Khong co buoc "ghi de".
+REM  File này Alice đã upload xong ở Đoạn 1 -> server từ chối ngay
+REM  (ERROR 0x0070 "file exists -- DELETE first"), KHÔNG đụng lại file
+REM  gốc. Không có bước "ghi đè".
 
---- (c) Max client + 1 -> SERVER_BUSY, server khong crash ---
-[TERMINAL: Dave]  (lap day slot cuoi -- 4/4)
+--- (c) Max client + 1 -> SERVER_BUSY, server không crash ---
+[TERMINAL: Dave]  (lấp đầy slot cuối -- 4/4)
 python client.py 127.0.0.1 9000 --username dave "LIST"
 
-[TERMINAL: Overflow]  (ket noi thu 5)
+[TERMINAL: Overflow]  (kết nối thứ 5)
 python client.py 127.0.0.1 9000 --username overflow "LIST"
-REM  Ket qua da xac nhan: ERROR 0x0078 "server is full", nhan duoc NGAY
-REM  (server accept() truoc, kiem tra capacity sau -- neu OS tu choi o
-REM  tang TCP, client se khong phan biet duoc "server day" voi "server
-REM  chet"). Server van song -- quay lai terminal Alice go "LIST" de
-REM  chung minh.
+REM  Kết quả đã xác nhận: ERROR 0x0078 "server is full", nhận được NGAY
+REM  (server accept() trước, kiểm tra capacity sau -- nếu OS từ chối ở
+REM  tầng TCP, client sẽ không phân biệt được "server đầy" với "server
+REM  chết"). Server vẫn sống -- quay lại terminal Alice gõ "LIST" để
+REM  chứng minh.
 
 
 ======================================================================
-Don dep sau demo
+Dọn dẹp sau demo
 ======================================================================
-Tren tung terminal client: go "exit" (thoat sach, LOGOUT dung cach).
-Tren terminal Server: Ctrl+C.
+Trên từng terminal client: gõ "exit" (thoát sạch, LOGOUT đúng cách).
+Trên terminal Server: Ctrl+C.
 
 
 ======================================================================
-Sai lam da tranh (khi chuan bi file nay)
+Sai lầm đã tránh (khi chuẩn bị file này)
 ======================================================================
-Ban dau du dinh dung max_clients=3 (khop dung 3 user cua Doan 1), roi
-demo USERNAME_IN_USE bang ket noi thu 4. Chay thu bang raw socket truoc
-khi dua vao script thi phat hien: voi 3/3 slot da day, ket noi thu 4 bi
-tu choi SERVER_BUSY ngay tu buoc accept/capacity -- KHONG BAO GIO toi
-duoc buoc kiem tra LOGIN/username, nen khong the nao thay USERNAME_IN_USE
-theo cach do. Sua bang cach nang len max_clients=4, chua dung het slot o
-Doan 1 (chi 3/4), de danh rieng 1 slot cho phan (a) o Doan 2.
+Ban đầu dự định dùng max_clients=3 (khớp đúng 3 user của Đoạn 1), rồi
+demo USERNAME_IN_USE bằng kết nối thứ 4. Chạy thử bằng raw socket trước
+khi đưa vào script thì phát hiện: với 3/3 slot đã đầy, kết nối thứ 4 bị
+từ chối SERVER_BUSY ngay từ bước accept/capacity -- KHÔNG BAO GIỜ tới
+được bước kiểm tra LOGIN/username, nên không thể nào thấy USERNAME_IN_USE
+theo cách đó. Sửa bằng cách nâng lên max_clients=4, chưa dùng hết slot ở
+Đoạn 1 (chỉ 3/4), để dành riêng 1 slot cho phần (a) ở Đoạn 2.
