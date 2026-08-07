@@ -1,0 +1,112 @@
+Demo Phase 2 -- lenh copy-paste theo tung terminal
+====================================================
+Theo kich ban demo trong docs/ke_hoach_phase2.md (Phan 7). Chay tu thu muc
+`project/Phase 2/`. Dat ten terminal theo vai tro (Server / Alice / Bob /
+Carol / Dave / Overflow) de de theo doi khi trinh chieu.
+
+TOAN BO trinh tu duoi day da duoc chay thu that (raw socket, khong doan)
+truoc khi dua vao file nay -- moi opcode/error code ghi ra la ket qua
+that, khong phai suy doan tu doc code.
+
+Ca demo dung MOT server duy nhat, --max-clients=4:
+  - "LOGIN 3 user" cua Doan 1 (Alice/Bob/Carol) dung dung 3/4 slot, con
+    du 1 slot trong -- CO CHU DICH, de phan (c) o Doan 2 con cho de
+    LOGIN trung ten di qua duoc buoc kiem tra capacity va thuc su cham
+    toi buoc kiem tra username.
+  - Neu dung max_clients=3 (het slot ngay tu Doan 1), LOGIN trung ten se
+    bi tu choi SERVER_BUSY (kiem tra capacity truoc LOGIN) thay vi
+    USERNAME_IN_USE nhu du dinh -- da tu kiem chung loi nay truoc khi
+    sua, xem "Sai lam da tranh" o cuoi file.
+
+----------------------------------------------------------------------
+[TERMINAL: Server]  (giu chay xuyen suot demo)
+----------------------------------------------------------------------
+python server.py 9000 "" 4
+REM  "" = bind moi interface (INADDR_ANY); 4 = max_clients.
+REM  Log truc tiep tai console + logs/server.log.
+
+TRUOC DEMO -- chay 1 lan de co san file test:
+python testdata\make_testdata.py
+
+
+======================================================================
+DOAN 1 (0:45-2:10) -- Cuong: khoi server, LOGIN 3 user, namespace rieng,
+                              upload/download song song
+======================================================================
+
+[TERMINAL: Alice]
+python client.py 127.0.0.1 9000 --username alice
+  UPLOAD testdata\512b.bin
+  LIST
+REM  Giu terminal nay mo xuyen suot Doan 1 va Doan 2 -- can session Alice
+REM  con song de demo USERNAME_IN_USE va FILE_EXISTS o Doan 2.
+
+[TERMINAL: Bob]
+python client.py 127.0.0.1 9000 --username bob
+  UPLOAD testdata\512b.bin
+  LIST
+REM  Bob upload CUNG TEN FILE voi Alice -- khong xung dot vi khac
+REM  namespace (storage/alice/ vs storage/bob/). Bob go "LIST" chi thay
+REM  file cua minh, khong thay file cua Alice.
+
+[TERMINAL: Carol]
+python client.py 127.0.0.1 9000 --username carol
+  LIST
+REM  Giu terminal nay mo -- day la slot thu 3/4. Con 1 slot trong.
+
+
+======================================================================
+DOAN 2 (6:20-7:10) -- Cuong: USERNAME_IN_USE, FILE_EXISTS, SERVER_BUSY
+======================================================================
+
+--- (a) 2 client cung username -> USERNAME_IN_USE (KHONG PHAI FILE_BUSY) ---
+[TERMINAL: Dave-thu]  (dung 1 lan roi dong)
+python client.py 127.0.0.1 9000 --username alice "LIST"
+REM  Ket qua da xac nhan: ERROR 0x0069 "alice already online". Con slot
+REM  trong (3/4 dang dung) nen lenh nay di qua duoc buoc capacity va
+REM  thuc su cham buoc kiem tra username -- dung la USERNAME_IN_USE,
+REM  khong phai SERVER_BUSY.
+REM  Giai thich ngan (~15s): FILE_BUSY (0x0079) co ton tai trong
+REM  protocol (FileLockRegistry timeout) nhung KHONG THE quan sat duoc
+REM  qua giao thuc that, vi UserRegistry chi cho 1 session/username --
+REM  2 session cung ten khong bao gio cung ton tai de tranh 1 file lock.
+REM  Da xac nhan bang tests/test_file_busy.py (chi tiet + ly do thiet ke:
+REM  docs/report_cuong_server_lock_duplicate.md, muc 2.4).
+
+--- (b) Upload trung ten file hoan chinh -> FILE_EXISTS ---
+[TERMINAL: Alice]
+  UPLOAD testdata\512b.bin
+REM  File nay Alice da upload xong o Doan 1 -> server tu choi ngay
+REM  (ERROR 0x0070 "file exists -- DELETE first"), KHONG dung lai file
+REM  goc. Khong co buoc "ghi de".
+
+--- (c) Max client + 1 -> SERVER_BUSY, server khong crash ---
+[TERMINAL: Dave]  (lap day slot cuoi -- 4/4)
+python client.py 127.0.0.1 9000 --username dave "LIST"
+
+[TERMINAL: Overflow]  (ket noi thu 5)
+python client.py 127.0.0.1 9000 --username overflow "LIST"
+REM  Ket qua da xac nhan: ERROR 0x0078 "server is full", nhan duoc NGAY
+REM  (server accept() truoc, kiem tra capacity sau -- neu OS tu choi o
+REM  tang TCP, client se khong phan biet duoc "server day" voi "server
+REM  chet"). Server van song -- quay lai terminal Alice go "LIST" de
+REM  chung minh.
+
+
+======================================================================
+Don dep sau demo
+======================================================================
+Tren tung terminal client: go "exit" (thoat sach, LOGOUT dung cach).
+Tren terminal Server: Ctrl+C.
+
+
+======================================================================
+Sai lam da tranh (khi chuan bi file nay)
+======================================================================
+Ban dau du dinh dung max_clients=3 (khop dung 3 user cua Doan 1), roi
+demo USERNAME_IN_USE bang ket noi thu 4. Chay thu bang raw socket truoc
+khi dua vao script thi phat hien: voi 3/3 slot da day, ket noi thu 4 bi
+tu choi SERVER_BUSY ngay tu buoc accept/capacity -- KHONG BAO GIO toi
+duoc buoc kiem tra LOGIN/username, nen khong the nao thay USERNAME_IN_USE
+theo cach do. Sua bang cach nang len max_clients=4, chua dung het slot o
+Doan 1 (chi 3/4), de danh rieng 1 slot cho phan (a) o Doan 2.
