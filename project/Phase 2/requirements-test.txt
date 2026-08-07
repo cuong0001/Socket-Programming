@@ -1,0 +1,5 @@
+# Dependencies needed only to run the test suite (not by server.py/client.py
+# themselves). psutil is used by tests/test_churn.py to inspect the real
+# server subprocess's thread/handle counts, which threading.active_count()
+# can't do across a process boundary.
+psutil>=5.9
