@@ -241,5 +241,22 @@ class TestResumeAndLogin(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("File not found", result.stdout + result.stderr)
 
+    def test_delete_failure_nonzero_exit(self):
+        def handler(conn):
+            P.read_packet(conn)
+            conn.sendall(P.pack_packet(P.ACK, 0, P.pack_ack(P.LOGIN, 999)))
+            P.read_packet(conn)
+            err = P.pack_error(404, "File not found")
+            conn.sendall(P.pack_packet(P.ERROR, 999, err))
+
+        server = FakeServer(handler)
+        server.start()
+        result = run_client(server.port, ["DELETE", "missing.bin"], self.work_dir)
+        server.join()
+
+        if server.error: raise server.error
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Failed to delete", result.stdout + result.stderr)
+
 if __name__ == '__main__':
     unittest.main()
