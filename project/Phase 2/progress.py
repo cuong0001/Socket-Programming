@@ -12,8 +12,11 @@ class ProgressRenderer:
         self.current = resumed_from
         self.started = time.perf_counter()
         self._last = 0.0
+        self._finished = False
 
     def update(self, done: int) -> None:
+        if self._finished:
+            return
         if done < self.current:
             return
         self.current = done
@@ -44,5 +47,8 @@ class ProgressRenderer:
 
     def done(self) -> None:
         # Force a final render at 100% and print a newline to prevent overriding
-        self.update(self.total)
-        print()
+        if not self._finished:
+            self._finished = True
+            self.update(self.total)
+            print()
+            
