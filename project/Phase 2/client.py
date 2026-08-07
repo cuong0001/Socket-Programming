@@ -86,7 +86,6 @@ def process_command(client, cmd, uid, limit_bps=0 ):
                 send_packet(client, P.FILE_CHUNK, payload=P.pack_chunk(sent, chunk), user_id=uid)
                 sent += len(chunk)
                 progress.update(sent)
-        progress.done()
         print("[OK] Upload stream finished! Waiting for server SHA256 verification...")
 
         # 4. Receive final ACK from server
@@ -95,6 +94,7 @@ def process_command(client, cmd, uid, limit_bps=0 ):
             _, _, server_digest = P.unpack_ack(payload)
             if server_digest == sha256_digest:
                 print(f"[OK] SHA256 Verification OK")
+                progress.done()
             else:
                 print(f"[ERROR] SHA256 MISMATCH")
                 print(f"  -> Local Hash : {sha256_digest.hex()}")
@@ -197,7 +197,6 @@ def process_command(client, cmd, uid, limit_bps=0 ):
                     hasher.update(data)
                     received += len(data)
                     progress.update(received)
-            progress.done()
 
             # Verify hash
             local_digest = hasher.digest()
@@ -205,6 +204,7 @@ def process_command(client, cmd, uid, limit_bps=0 ):
                 print(f"[OK] SHA256 Verification OK")
                 commit_download(downloads_dir, filename)
                 cleanup_staging(downloads_dir, filename)
+                progress.done()
             else:
                 print(f"[ERROR] SHA256 MISMATCH")
                 print(f"  -> Local Hash : {local_digest.hex()}")
@@ -231,11 +231,19 @@ def process_command(client, cmd, uid, limit_bps=0 ):
         op, _, payload = recv_packet(client)
 
         if op == P.ACK:
+            acked_opcode, _, _ = P.unpack_ack(payload)
+            if acked_opcode != P.FILE_DELETE:
+                print(f"[ERROR] Expected ACK for FILE_DELETE, got {acked_opcode}")
+                return False
             print(f"[OK] File '{filename}' has been deleted from server.")
+            return True
         elif op == P.ERROR:
             code, msg = P.unpack_error(payload)
             print(f"[ERROR] Failed to delete '{filename}' ({code}): {msg}")
-        return True
+            return False
+        else:
+            print(f"[ERROR] Expected ACK or ERROR, got {op}")
+            return False
 
     else:
         send_packet(client, P.FILE_LIST, user_id=uid)

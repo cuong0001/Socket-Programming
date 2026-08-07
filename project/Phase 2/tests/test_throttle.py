@@ -37,7 +37,7 @@ class TestThrottle(unittest.TestCase):
         try:
             from file_handler import sha256_file
             file_hash = sha256_file(filepath)
-        
+
             for run in range(1, 4):
                 # 1. Mock the two server ACKs that client.process_command expects
                 #    - First ACK: Server accepts FILE_UPLOAD, start offset = 0
@@ -50,16 +50,16 @@ class TestThrottle(unittest.TestCase):
 
                 # 2. Start the timer
                 started = time.perf_counter()
-                
+
                 # 3. Execute the REAL client code (network is mocked, throttle is real)
                 client.process_command(fake_sock, f"UPLOAD {filepath}", uid=1, limit_bps=LIMIT_BPS)
-                
+
                 # 4. Stop the timer and calculate speed
                 elapsed = time.perf_counter() - started
                 speed = FILE_SIZE / elapsed
-            
+
                 # 5. Reset mock side_effect for the next run
-                mock_recv_packet.side_effect = None 
+                mock_recv_packet.side_effect = None
 
                 results.append({
                     "Run": run,
