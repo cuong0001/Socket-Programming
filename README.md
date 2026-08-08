@@ -31,5 +31,5 @@ python -m unittest discover -s tests -t tests -v
 
 - [Runbook Giai đoạn 2](project/Phase%202/README.md)
 - [Mini-RFC giao thức](project/Phase%202/docs/protocol.md)
-- [Báo cáo kiến trúc và kiểm thử](project/Phase%202/docs/report_cuong_server_lock_duplicate.md)
+- [Báo cáo kiến trúc và kiểm thử](project/Phase%202/docs/architecture.md)
 - [Lệnh demo](project/Phase%202/demo_commands.txt)
