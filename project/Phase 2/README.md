@@ -1,128 +1,86 @@
-# Phase 2 — Socket Programming (File Transfer Client/Server)
+# Giai đoạn 2 — Client và Server truyền file
 
-Server/client truyền file qua giao thức nhị phân tự định nghĩa (không dùng
-FTP/HTTP), hỗ trợ nhiều user đồng thời, mỗi user một namespace lưu trữ
-riêng, resume upload/download dở dang, giới hạn băng thông, và progress bar.
+Đây là dịch vụ truyền file qua TCP với giao thức nhị phân tự định nghĩa, hỗ trợ nhiều client đồng thời, namespace riêng theo username, resume upload/download, kiểm tra SHA-256, progress, giới hạn băng thông, mã lỗi có cấu trúc và `SERVER_BUSY`.
 
-Hướng dẫn này giả định chạy trên máy sạch — clone repo mới, làm theo đúng
-thứ tự bên dưới là chạy được, không cần đoán thêm gì.
+## Yêu cầu và cài đặt
 
-## 1. Yêu cầu
+- Python 3.10 trở lên.
+- Chạy client/server chỉ cần thư viện chuẩn Python.
+- Full test suite cần `psutil` cho bài kiểm tra churn.
 
-- Python 3.10 trở lên (dùng cú pháp `str | None`, generic `tuple[...]` có sẵn từ 3.9+).
-- Không cần cài package nào để **chạy server/client** — chỉ dùng thư viện chuẩn.
-- Chạy **toàn bộ test suite** cần thêm `psutil` (chỉ `tests/test_churn.py` dùng, để đọc thread/handle count của server chạy ở process riêng).
-
-## 2. Cài đặt
-
-```bash
-cd project/Phase\ 2
-
-# Chỉ cần nếu muốn chạy full test suite (test_churn.py cần psutil):
-pip install -r requirements-test.txt
+```powershell
+Set-Location "project/Phase 2"
+python -m pip install -r requirements-test.txt
 ```
 
-## 3. Chạy server
+Luôn chạy lệnh từ thư mục này để `storage/` và `logs/` được tạo đúng vị trí.
 
-```bash
+## Chạy server
+
+```text
 python server.py <port> [host] [max_clients]
 ```
 
-Ví dụ:
-
-```bash
-python server.py 9000                 # bind mọi interface, max_clients mặc định = 10
-python server.py 9000 "" 4             # override max_clients (hữu ích khi demo SERVER_BUSY)
+```powershell
+python server.py 9000
+python server.py 9000 "" 4
 ```
 
-- `storage/` (dữ liệu user) và `logs/server.log` (log R1.4) được tạo trong **thư mục hiện tại** — luôn chạy từ `project/Phase 2/` để đúng layout, đường dẫn thật được in ra ngay khi server khởi động.
-- Server tự in `[OK] Storage dir: ...` / `[OK] Max clients: N` khi sẵn sàng.
-- Dừng sạch bằng `Ctrl+C` (đóng socket, ghi log DISCONNECT cho các session đang mở qua timeout tự nhiên — không cần force-kill).
+Mặc định server cho phép 10 client hoạt động. Dùng `max_clients=4` khi demo `SERVER_BUSY`. Dừng server bằng `Ctrl+C`.
 
-## 4. Chạy client
+## Chạy client
 
-```bash
-python client.py <host> <port> --username <tên> [--limit <KBps>] ["<lệnh>"]
+```text
+python client.py <host> <port> --username <name> [--limit <KBps>] [command]
 ```
 
-- Bỏ `["<lệnh>"]` → vào **chế độ tương tác**: gõ lệnh từng dòng, gõ `exit` để LOGOUT sạch và thoát.
-- Truyền `["<lệnh>"]` → chạy **một lệnh rồi thoát**; exit code phản ánh đúng thành/bại (0 = thành công, 1 = lỗi) — dùng được trong script.
-- `--limit N` giới hạn tốc độ upload/download ở N KB/s (0 = không giới hạn, mặc định).
+Không truyền command để vào chế độ tương tác; gõ `exit` để logout. Khi truyền một command, client trả exit code 0 nếu thành công và 1 nếu lỗi.
 
-| Lệnh | Cú pháp | Ghi chú |
+| Lệnh | Ví dụ | Ý nghĩa |
 |---|---|---|
-| `UPLOAD` | `UPLOAD <đường dẫn file cục bộ>` | Tự tính SHA-256 trước khi gửi; tự resume nếu có `.part` tương thích trên server; từ chối nếu file đã tồn tại hoàn chỉnh (phải `DELETE` trước) |
-| `DOWNLOAD` | `DOWNLOAD <tên file trên server>` | Lưu vào `downloads/` (tạo tự động); tự resume nếu trước đó tải dở |
-| `DELETE` | `DELETE <tên file>` | Chỉ xoá được file trong namespace của username đang login |
-| `LIST` | `LIST` | Liệt kê file trong namespace của user hiện tại |
+| `LIST` | `LIST` | Liệt kê file trong namespace của user hiện tại. |
+| `UPLOAD` | `UPLOAD testdata/512b.bin` | Upload, kiểm tra SHA-256 và resume staging tương thích. |
+| `DOWNLOAD` | `DOWNLOAD 512b.bin` | Download vào `downloads/`, hỗ trợ resume. |
+| `DELETE` | `DELETE 512b.bin` | Xóa file trong namespace hiện tại. |
 
-Ví dụ:
-
-```bash
-# Một lệnh rồi thoát:
-python client.py 127.0.0.1 9000 --username alice "UPLOAD testdata/512b.bin"
-python client.py 127.0.0.1 9000 --username alice --limit 500 "UPLOAD testdata/10mb.bin"
-
-# Chế độ tương tác:
-python client.py 127.0.0.1 9000 --username alice
-> LIST
-> DOWNLOAD 512b.bin
-> exit
-```
-
-File test mẫu (nhiều kích thước, kể cả byte `0x00` và file 150MB) được tạo bằng:
-
-```bash
+```powershell
 python testdata/make_testdata.py
+python client.py 127.0.0.1 9000 --username alice "UPLOAD testdata/512b.bin"
+python client.py 127.0.0.1 9000 --username alice "LIST"
+python client.py 127.0.0.1 9000 --username alice --limit 500 "UPLOAD testdata/10mb.bin"
+python client.py 127.0.0.1 9000 --username alice "DOWNLOAD 512b.bin"
+python client.py 127.0.0.1 9000 --username alice "DELETE 512b.bin"
 ```
 
-## 5. Chạy test
+## Chạy test
 
-```bash
-cd project/Phase\ 2
-pip install -r requirements-test.txt
+```powershell
 python -m unittest discover -s tests -t tests -v
 ```
 
-Kỳ vọng: **toàn bộ PASS** (66/66 tại thời điểm viết README này — xem `docs/ke_hoach_phase2.md` phần "Nhật ký triển khai" để biết số liệu mới nhất qua từng PR). Thời gian chạy toàn bộ suite khoảng 40s trên máy phát triển.
+Các test quan trọng:
 
-Chạy riêng các test đáng chú ý:
-
-```bash
-# 10 client đồng thời x 3 vòng (barrier-sync, seed cố định)
+```powershell
 python -m unittest discover -s tests -t tests -p test_multi.py -v
-
-# 500 vòng connect/LOGIN/LOGOUT, kiểm tra thread/handle không tăng tuyến tính
 python -m unittest discover -s tests -t tests -p test_churn.py -v
-
-# Throttle 500KB/s x 3 lần qua luồng client thật, xuất CSV vào docs/test-results/
-python -m unittest discover -s tests -t tests -p test_throttle.py -v
-
-# Capacity: client thứ (max_clients+1) nhận SERVER_BUSY, server không crash
 python -m unittest discover -s tests -t tests -p test_server_busy.py -v
-
-# Xác nhận FILE_BUSY không thể xảy ra qua giao thức thật (đọc docstring trong file để biết lý do)
 python -m unittest discover -s tests -t tests -p test_file_busy.py -v
+python -m unittest discover -s tests -t tests -p test_throttle.py -v
+python -m unittest discover -s tests -t tests -p test_stress_clients.py -v
 ```
 
-`test_multi.py` và `test_churn.py` nên chạy lại vài lần liên tiếp trước khi tin — race condition thường chỉ lộ ra không đều.
+`test_throttle.py` chạy ba lần upload 2 MiB và ghi `docs/test-results/throttle.csv`. Stress runner ghi JSON/CSV vào `docs/test-results/`.
 
-## 6. Demo
+## Kiến trúc tóm tắt
 
-Kịch bản demo 5–8 phút, lệnh copy-paste theo từng terminal (đã rehearse thật bằng raw socket trước khi viết, không phải suy đoán từ code): xem [`demo_commands.txt`](demo_commands.txt).
+- **Thread-per-client:** mỗi socket được xử lý bởi một daemon thread; semaphore giới hạn số client.
+- **Namespace:** file nằm trong `storage/<username>/`; validator và real-path containment chặn path traversal.
+- **Lock:** `FileLockRegistry` khóa theo `(username, filename)` và dọn entry không còn tham chiếu.
+- **Logging:** logger dùng chung, thread-safe, ghi command/transfer vào `logs/server.log` và stdout, kể cả nhánh lỗi.
+- **SERVER_BUSY:** khi hết slot, server trả mã lỗi có cấu trúc mà không crash; slot được giải phóng khi session kết thúc.
 
-## 7. Tài liệu khác
+Xem [`docs/protocol.md`](docs/protocol.md) và [`docs/report_cuong_server_lock_duplicate.md`](docs/report_cuong_server_lock_duplicate.md) để biết chi tiết.
 
-- [`docs/ke_hoach_phase2.md`](docs/ke_hoach_phase2.md) — kế hoạch triển khai gốc + nhật ký thực tế qua từng PR (task-based, không theo ngày).
-- [`docs/report_cuong_server_lock_duplicate.md`](docs/report_cuong_server_lock_duplicate.md) — kiến trúc server, namespace/lock 2 lớp, duplicate-upload policy, vì sao `FILE_BUSY` không quan sát được qua protocol thật.
+## Demo
 
-## 8. Kiến trúc tóm tắt
-
-- **Thread-per-client**: mỗi kết nối được `server.py` giao cho một `threading.Thread(daemon=True)` riêng — phù hợp workload I/O-bound, không cần viết lại theo mô hình async.
-- **Giới hạn tài nguyên 3 lớp**: capacity qua semaphore (`accept()` trước, kiểm tra slot sau — để phân biệt "server đầy" với "server chết"), một session/username qua `UserRegistry`, và idle timeout 30s để dọn session chết (crash/mất mạng không gửi FIN).
-- **Namespace**: mỗi user một thư mục `storage/<username>/`, cách ly hoàn toàn — không cần kiểm tra quyền sở hữu từng file.
-- **Validation 2 lớp** cho cả username lẫn filename: lớp 1 chặn ký tự nguy hiểm (`/`, `\`, `..`, `:`, tên thiết bị Windows), lớp 2 `os.path.realpath()` + kiểm tra containment thật — độc lập với lớp 1.
-- **`FileLockRegistry`**: lock theo `(username, filename)`, tạo lazy, tự dọn khi không còn ai giữ tham chiếu (refcount).
-- **Logging (R1.4)**: mỗi lệnh sinh đúng 1 dòng log (`logs/server.log`), kể cả các nhánh từ chối sớm.
-
-Chi tiết đầy đủ + lý do thiết kế: xem `docs/report_cuong_server_lock_duplicate.md`.
+Làm theo [`demo_commands.txt`](demo_commands.txt) để trình bày namespace, username trùng, file trùng, `SERVER_BUSY` và server vẫn hoạt động sau khi từ chối client.

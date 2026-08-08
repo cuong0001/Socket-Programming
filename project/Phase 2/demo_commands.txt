@@ -1,112 +1,77 @@
-Demo Phase 2 -- lệnh copy-paste theo từng terminal
-====================================================
-Theo kịch bản demo trong docs/ke_hoach_phase2.md (Phần 7). Chạy từ thư mục
-`project/Phase 2/`. Đặt tên terminal theo vai trò (Server / Alice / Bob /
-Carol / Dave / Overflow) để dễ theo dõi khi trình chiếu.
+DEMO GIAI ĐOẠN 2 — 5 ĐẾN 8 PHÚT
+================================
 
-TOÀN BỘ trình tự dưới đây đã được chạy thử thật (raw socket, không đoán)
-trước khi đưa vào file này -- mọi opcode/error code ghi ra là kết quả
-thật, không phải suy đoán từ đọc code.
+Chạy từ `project/Phase 2`. Mở các terminal Server, Alice, Bob, Carol, Dave và Overflow.
 
-Cả demo dùng MỘT server duy nhất, --max-clients=4:
-  - "LOGIN 3 user" của Đoạn 1 (Alice/Bob/Carol) dùng đúng 3/4 slot, còn
-    dư 1 slot trống -- CÓ CHỦ ĐÍCH, để phần (c) ở Đoạn 2 còn chỗ để
-    LOGIN trùng tên đi qua được bước kiểm tra capacity và thực sự chạm
-    tới bước kiểm tra username.
-  - Nếu dùng max_clients=3 (hết slot ngay từ Đoạn 1), LOGIN trùng tên sẽ
-    bị từ chối SERVER_BUSY (kiểm tra capacity trước LOGIN) thay vì
-    USERNAME_IN_USE như dự định -- đã tự kiểm chứng lỗi này trước khi
-    sửa, xem "Sai lầm đã tránh" ở cuối file.
+CHUẨN BỊ
+--------
 
-----------------------------------------------------------------------
-[TERMINAL: Server]  (giữ chạy xuyên suốt demo)
-----------------------------------------------------------------------
-python server.py 9000 "" 4
-REM  "" = bind mọi interface (INADDR_ANY); 4 = max_clients.
-REM  Log trực tiếp tại console + logs/server.log.
+    python testdata\make_testdata.py
 
-TRƯỚC DEMO -- chạy 1 lần để có sẵn file test:
-python testdata\make_testdata.py
+[SERVER — giữ chạy]
 
+    python server.py 9000 "" 4
 
-======================================================================
-ĐOẠN 1 (0:45-2:10) -- Cường: khởi server, LOGIN 3 user, namespace riêng,
-                              upload/download song song
-======================================================================
+GIỚI THIỆU NAMESPACE VÀ NHIỀU CLIENT
+------------------------------------
 
-[TERMINAL: Alice]
-python client.py 127.0.0.1 9000 --username alice
-  UPLOAD testdata\512b.bin
-  LIST
-REM  Giữ terminal này mở xuyên suốt Đoạn 1 và Đoạn 2 -- cần session Alice
-REM  còn sống để demo USERNAME_IN_USE và FILE_EXISTS ở Đoạn 2.
+[ALICE — giữ terminal mở]
 
-[TERMINAL: Bob]
-python client.py 127.0.0.1 9000 --username bob
-  UPLOAD testdata\512b.bin
-  LIST
-REM  Bob upload CÙNG TÊN FILE với Alice -- không xung đột vì khác
-REM  namespace (storage/alice/ vs storage/bob/). Bob gõ "LIST" chỉ thấy
-REM  file của mình, không thấy file của Alice.
+    python client.py 127.0.0.1 9000 --username alice
+    UPLOAD testdata\512b.bin
+    LIST
 
-[TERMINAL: Carol]
-python client.py 127.0.0.1 9000 --username carol
-  LIST
-REM  Giữ terminal này mở -- đây là slot thứ 3/4. Còn 1 slot trống.
+[BOB — giữ terminal mở]
 
+    python client.py 127.0.0.1 9000 --username bob
+    UPLOAD testdata\512b.bin
+    LIST
 
-======================================================================
-ĐOẠN 2 (6:20-7:10) -- Cường: USERNAME_IN_USE, FILE_EXISTS, SERVER_BUSY
-======================================================================
+Giải thích: Alice và Bob dùng cùng tên file nhưng không xung đột vì mỗi user có namespace riêng.
 
---- (a) 2 client cùng username -> USERNAME_IN_USE (KHÔNG PHẢI FILE_BUSY) ---
-[TERMINAL: Dave-thử]  (dùng 1 lần rồi đóng)
-python client.py 127.0.0.1 9000 --username alice "LIST"
-REM  Kết quả đã xác nhận: ERROR 0x0069 "alice already online". Còn slot
-REM  trống (3/4 đang dùng) nên lệnh này đi qua được bước capacity và
-REM  thực sự chạm bước kiểm tra username -- đúng là USERNAME_IN_USE,
-REM  không phải SERVER_BUSY.
-REM  Giải thích ngắn (~15s): FILE_BUSY (0x0079) có tồn tại trong
-REM  protocol (FileLockRegistry timeout) nhưng KHÔNG THỂ quan sát được
-REM  qua giao thức thật, vì UserRegistry chỉ cho 1 session/username --
-REM  2 session cùng tên không bao giờ cùng tồn tại để tranh 1 file lock.
-REM  Đã xác nhận bằng tests/test_file_busy.py (chi tiết + lý do thiết kế:
-REM  docs/report_cuong_server_lock_duplicate.md, mục 2.4).
+[CAROL — giữ terminal mở]
 
---- (b) Upload trùng tên file hoàn chỉnh -> FILE_EXISTS ---
-[TERMINAL: Alice]
-  UPLOAD testdata\512b.bin
-REM  File này Alice đã upload xong ở Đoạn 1 -> server từ chối ngay
-REM  (ERROR 0x0070 "file exists -- DELETE first"), KHÔNG đụng lại file
-REM  gốc. Không có bước "ghi đè".
+    python client.py 127.0.0.1 9000 --username carol
+    LIST
 
---- (c) Max client + 1 -> SERVER_BUSY, server không crash ---
-[TERMINAL: Dave]  (lấp đầy slot cuối -- 4/4)
-python client.py 127.0.0.1 9000 --username dave "LIST"
+USERNAME_IN_USE VÀ FILE_EXISTS
+------------------------------
 
-[TERMINAL: Overflow]  (kết nối thứ 5)
-python client.py 127.0.0.1 9000 --username overflow "LIST"
-REM  Kết quả đã xác nhận: ERROR 0x0078 "server is full", nhận được NGAY
-REM  (server accept() trước, kiểm tra capacity sau -- nếu OS từ chối ở
-REM  tầng TCP, client sẽ không phân biệt được "server đầy" với "server
-REM  chết"). Server vẫn sống -- quay lại terminal Alice gõ "LIST" để
-REM  chứng minh.
+[DAVE — chạy một lần]
 
+    python client.py 127.0.0.1 9000 --username alice "LIST"
 
-======================================================================
-Dọn dẹp sau demo
-======================================================================
-Trên từng terminal client: gõ "exit" (thoát sạch, LOGOUT đúng cách).
-Trên terminal Server: Ctrl+C.
+Kết quả mong đợi: `USERNAME_IN_USE` (0x0069), vì vẫn còn một slot trống.
 
+[ALICE]
 
-======================================================================
-Sai lầm đã tránh (khi chuẩn bị file này)
-======================================================================
-Ban đầu dự định dùng max_clients=3 (khớp đúng 3 user của Đoạn 1), rồi
-demo USERNAME_IN_USE bằng kết nối thứ 4. Chạy thử bằng raw socket trước
-khi đưa vào script thì phát hiện: với 3/3 slot đã đầy, kết nối thứ 4 bị
-từ chối SERVER_BUSY ngay từ bước accept/capacity -- KHÔNG BAO GIỜ tới
-được bước kiểm tra LOGIN/username, nên không thể nào thấy USERNAME_IN_USE
-theo cách đó. Sửa bằng cách nâng lên max_clients=4, chưa dùng hết slot ở
-Đoạn 1 (chỉ 3/4), để dành riêng 1 slot cho phần (a) ở Đoạn 2.
+    UPLOAD testdata\512b.bin
+
+Kết quả mong đợi: `FILE_EXISTS` (0x0070); server không ghi đè file hoàn chỉnh.
+
+SERVER_BUSY
+-----------
+
+[DAVE — giữ terminal mở]
+
+    python client.py 127.0.0.1 9000 --username dave
+    LIST
+
+[OVERFLOW]
+
+    python client.py 127.0.0.1 9000 --username overflow "LIST"
+
+Kết quả mong đợi: `SERVER_BUSY` (0x0078). Quay lại Alice và gõ `LIST` để chứng minh server vẫn phục vụ client cũ.
+
+RESUME VÀ THROTTLE (NẾU ĐÃ MERGE PR CLIENT ACCEPTANCE)
+------------------------------------------------------
+
+    python tools\resume_demo.py
+    python -m unittest discover -s tests -t tests -p test_throttle.py -v
+
+Cho xem `docs/test-results/throttle.csv`; cả ba lần đo phải nằm trong giới hạn cho phép.
+
+DỌN DẸP
+-------
+
+Gõ `exit` ở các terminal client, sau đó nhấn `Ctrl+C` ở terminal server.
