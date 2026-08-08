@@ -9,6 +9,16 @@ Kịch bản này được thiết kế cho video dài khoảng **7 phút**, đ�
 
 Ngoài phần bắt buộc, video còn cho thấy namespace riêng, stress 12 client, progress, throttle, `FILE_EXISTS` và `SERVER_BUSY`.
 
+### Phân công ba thành viên
+
+| Thành viên | Phần phụ trách | Thời lượng dự kiến |
+|---|---|---:|
+| **Cường** | Giới thiệu kiến trúc/giao thức, khởi động server, LIST/DOWNLOAD cơ bản, chứng minh server còn hoạt động và tổng kết | ~2 phút 20 giây |
+| **Bình** | Ba client upload đồng thời, stress 12 × 20, throttle và chính sách `FILE_EXISTS` | ~2 phút 30 giây |
+| **Hưng** | Chuẩn bị và chạy resume upload/download, trình bày offset/SHA-256 và demo `SERVER_BUSY` | ~2 phút 15 giây |
+
+Thời gian có thể lệch vài giây do tốc độ chạy lệnh. Khi chuyển người, người đang nói kết thúc bằng câu bàn giao ngắn; người tiếp theo đứng sẵn ở terminal của phần mình để video không bị ngắt quãng.
+
 ## 1. Chuẩn bị trước khi bấm quay
 
 Thực hiện trước để thời gian tạo file và sắp xếp cửa sổ không tính vào video.
@@ -57,7 +67,7 @@ Giới hạn 500 KB/s giúp mỗi upload 10 MiB kéo dài khoảng 20 giây, đ�
 
 ## 2. Timeline và lời thoại
 
-## 0:00–0:35 — Giới thiệu hệ thống
+## 0:00–0:35 — Cường: Giới thiệu hệ thống
 
 ### Hình ảnh
 
@@ -69,7 +79,11 @@ Mở nhanh `docs/architecture.md` và `docs/protocol.md`, chỉ vào packet head
 
 Không đọc toàn bộ tài liệu; chỉ cho thấy packet header, opcode table và kiến trúc trong khoảng 30 giây.
 
-## 0:35–0:55 — Khởi động server
+### Bàn giao
+
+> Tiếp theo, tôi khởi động server để Bình thực hiện kịch bản nhiều client đồng thời.
+
+## 0:35–0:55 — Cường: Khởi động server
 
 ### Terminal `SERVER`
 
@@ -83,7 +97,11 @@ python server.py 9000 "" 10
 
 Chỉ vào các dòng `Storage dir`, `Log file` và `Max clients` nếu server in ra.
 
-## 0:55–1:45 — Ba client truyền file đồng thời
+### Bàn giao
+
+> Server đã sẵn sàng. Bình sẽ trình bày ba client upload đồng thời và cách hệ thống tách namespace.
+
+## 0:55–1:45 — Bình: Ba client truyền file đồng thời
 
 ### Thao tác
 
@@ -111,7 +129,11 @@ Chuyển sang `SERVER` khoảng 5 giây để cho thấy các dòng kết nối 
 - cả ba đạt SHA-256 OK;
 - progress kết thúc tại 100%.
 
-## 1:45–2:25 — LIST và DOWNLOAD cơ bản
+### Bàn giao
+
+> Ba transfer đã hoàn tất độc lập. Cường sẽ dùng một namespace để minh họa LIST và DOWNLOAD cơ bản.
+
+## 1:45–2:25 — Cường: LIST và DOWNLOAD cơ bản
 
 ### Terminal `ALICE`
 
@@ -132,7 +154,11 @@ python client.py 127.0.0.1 9000 --username video-bob "LIST"
 
 Chỉ cần quay đến khi Alice hiện `SHA256 Verification OK` và 100%.
 
-## 2:25–3:05 — Stress 12 client và bằng chứng R2.1
+### Bàn giao
+
+> Truyền file cơ bản đã thành công. Tiếp theo Bình sẽ chạy stress test theo đúng cấu hình nghiệm thu R2.1.
+
+## 2:25–3:05 — Bình: Stress 12 client và bằng chứng R2.1
 
 ### Terminal `STRESS / RESUME`
 
@@ -158,7 +184,11 @@ Mở nhanh `docs/test-results/stress.json` hoặc `stress.csv`, chỉ vào:
 - `successful_clients = 240`;
 - `failed_clients = 0`.
 
-## 3:05–3:20 — Dừng server để chuẩn bị resume demo
+### Bàn giao
+
+> Stress test không có client thất bại. Hưng sẽ tiếp tục với tiêu chí resume sau khi ngắt kết nối giữa chừng.
+
+## 3:05–3:20 — Hưng: Dừng server để chuẩn bị resume demo
 
 ### Terminal `SERVER`
 
@@ -174,7 +204,7 @@ Ctrl+C
 
 Đợi server cũ kết thúc hoàn toàn rồi mới chạy bước tiếp theo.
 
-## 3:20–4:35 — Ngắt giữa chừng, reconnect và resume
+## 3:20–4:35 — Hưng: Ngắt giữa chừng, reconnect và resume
 
 ### Terminal `STRESS / RESUME`
 
@@ -238,7 +268,11 @@ Kết thúc phải quay rõ:
 
 > Sau khi nhận đủ byte, server hash toàn bộ file upload, so sánh SHA-256 và chỉ atomic commit khi digest khớp. Client cũng xác minh SHA-256 của file download hoàn chỉnh. Các file tạm và server demo đều được cleanup.
 
-## 4:35–5:05 — Bằng chứng throttle
+### Bàn giao
+
+> Resume upload và download đều đã khớp SHA-256. Bình sẽ trình bày artifact throttle và chính sách xử lý file đã tồn tại.
+
+## 4:35–5:05 — Bình: Bằng chứng throttle
 
 Mở file `docs/test-results/throttle.csv`.
 
@@ -248,7 +282,7 @@ Mở file `docs/test-results/throttle.csv`.
 
 Không cần chạy lại test throttle trong video nếu muốn tiết kiệm thời gian; CSV là artifact từ lần nghiệm thu release.
 
-## 5:05–5:35 — Chính sách file trùng
+## 5:05–5:35 — Bình: Chính sách file trùng
 
 ### Terminal `SERVER`
 
@@ -275,7 +309,11 @@ file exists -- DELETE first
 
 > File hoàn chỉnh đã tồn tại nên server từ chối bằng FILE_EXISTS và không ghi đè. Chính sách cập nhật là DELETE rõ ràng rồi mới UPLOAD lại, tránh để client khác đọc trúng file đang bị thay thế.
 
-## 5:35–6:35 — SERVER_BUSY và server vẫn hoạt động
+### Bàn giao
+
+> Cuối cùng, Hưng sẽ lấp đầy các slot kết nối để kiểm tra SERVER_BUSY, sau đó Cường xác nhận các session cũ vẫn hoạt động.
+
+## 5:35–6:20 — Hưng: SERVER_BUSY khi vượt capacity
 
 Mở ba session tương tác và giữ chúng không thoát.
 
@@ -312,6 +350,16 @@ ERROR 120 / SERVER_BUSY
 server is full
 ```
 
+### Lời thoại gợi ý
+
+> Ba session đang chiếm đủ ba slot của server. Kết nối thứ tư nhận mã SERVER_BUSY có cấu trúc thay vì làm server crash hoặc chờ vô hạn.
+
+### Bàn giao
+
+> Server đã từ chối đúng kết nối vượt giới hạn. Cường sẽ kiểm tra một session cũ để chứng minh server vẫn hoạt động bình thường.
+
+## 6:20–6:35 — Cường: Xác nhận server vẫn hoạt động
+
 Quay lại terminal `ALICE`, trong interactive prompt gõ:
 
 ```text
@@ -320,9 +368,9 @@ LIST
 
 ### Lời thoại gợi ý
 
-> Kết nối vượt capacity nhận mã SERVER_BUSY có cấu trúc thay vì làm server crash. Các session cũ vẫn hoạt động; Alice vẫn gửi LIST bình thường. Khi một session logout, semaphore sẽ trả lại slot cho client mới.
+> Các session cũ vẫn hoạt động; Alice vẫn gửi LIST bình thường. Khi một session logout, semaphore sẽ trả lại slot cho client mới.
 
-## 6:35–7:05 — Tổng kết
+## 6:35–7:05 — Cường: Tổng kết
 
 ### Hình ảnh
 
