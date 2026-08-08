@@ -16,8 +16,16 @@ import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
-# Add parent directory to path so we can import protocol, config, etc.
+
+# Windows may use a legacy console encoding (e.g. CP1252). The repository path
+# can contain Vietnamese characters, so reconfigure stdout/stderr to UTF-8 to
+# prevent UnicodeEncodeError when printing file paths that include those chars.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 sys.path.insert(0, str(BASE_DIR))
 import protocol as P
 HOST = "127.0.0.1"
@@ -72,50 +80,62 @@ def partial_upload(filepath: str, file_hash: bytes, filesize: int):
     sock.close()
     print(f"[DEMO] Connection killed at {sent:,} bytes ({sent/filesize*100:.1f}% of {filesize/1024/1024:.1f}MB)")
 
-def main():
-    # Generate test file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".bin", dir=BASE_DIR / "testdata") as tmp:
-        tmp.write(os.urandom(DEMO_FILE_SIZE))
-        filepath = tmp.name
-    
-    print(f"[DEMO] Created test file: {filepath} ({DEMO_FILE_SIZE/1024/1024:.0f} MB)")
-    file_hash = sha256_of_file(filepath)
-    print(f"[DEMO] SHA-256: {file_hash.hex()[:16]}...")
-    
-    # Start server
-    server_proc = subprocess.Popen(
-        [sys.executable, "server.py"],
-        cwd=str(BASE_DIR)
-    )
-    time.sleep(1.5)  # Wait for server to be ready
-    print(f"[DEMO] Server started (pid={server_proc.pid})")
-    
+def main() -> int:
+    filepath: str | None = None
+    server_proc: subprocess.Popen | None = None
+
     try:
+        # Generate test file
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".bin", dir=BASE_DIR / "testdata"
+        ) as tmp:
+            tmp.write(os.urandom(DEMO_FILE_SIZE))
+            filepath = tmp.name
+
+        print(f"[DEMO] Created test file: {filepath} ({DEMO_FILE_SIZE/1024/1024:.0f} MB)")
+        file_hash = sha256_of_file(filepath)
+        print(f"[DEMO] SHA-256: {file_hash.hex()[:16]}...")
+
+        # Start server
+        server_proc = subprocess.Popen(
+            [sys.executable, "server.py"],
+            cwd=str(BASE_DIR),
+        )
+        time.sleep(1.5)  # Wait for server to be ready
+        print(f"[DEMO] Server started (pid={server_proc.pid})")
+
         # Partial upload then kill
         partial_upload(filepath, file_hash, DEMO_FILE_SIZE)
         time.sleep(1)  # Give server time to clean up the dropped connection
-        
+
         # Resume via client.py
         print(f"\n[DEMO] Reconnecting and resuming upload...")
-        filename = os.path.basename(filepath)
         result = subprocess.run(
             [sys.executable, "client.py", HOST, str(PORT),
              "--username", USERNAME, f"UPLOAD {filepath}"],
-            cwd=str(BASE_DIR)
+            cwd=str(BASE_DIR),
         )
-        
-        if result.returncode == 0:
-            print(f"\n[DEMO] ✅ Resume successful! SHA-256 verified by server.")
-            return 0
-        else:
-            print(f"\n[DEMO] ❌ Resume failed (exit code {result.returncode})")
+
+        if result.returncode != 0:
+            print(
+                f"\n[DEMO] ❌ Resume failed (exit code {result.returncode})",
+                file=sys.stderr,
+            )
             return 1
-    
+
+        print(f"\n[DEMO] ✅ Resume successful! SHA-256 verified by server.")
+        return 0
+
     finally:
-        server_proc.terminate()
-        server_proc.wait()
-        os.remove(filepath)
-        print(f"[DEMO] Server stopped. Test file cleaned up.")
+        if server_proc is not None:
+            server_proc.terminate()
+            server_proc.wait()
+            print("[DEMO] Server stopped.")
+        if filepath is not None and os.path.exists(filepath):
+            os.remove(filepath)
+            print("[DEMO] Test file cleaned up.")
+
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
