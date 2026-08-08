@@ -106,6 +106,53 @@ class TestThrottle(unittest.TestCase):
         self.assertLess(elapsed, 0.1, f"Unlimited mode took too long: {elapsed:.2f}s")
         print(f"\n[OK] Unlimited mode completed in {elapsed:.4f}s")
 
+
+class TestParallelThrottle(unittest.TestCase):
+    def test_two_clients_throttled_independently(self):
+        """Two simultaneous TokenBucket instances at 500 KB/s must each
+        stay under 550 KB/s regardless of what the other client is doing.
+
+        Each logical client owns its own TokenBucket — this test proves that
+        two concurrent uploads do not share or interfere with each other's
+        rate limiter. Both must stay within the +10% threshold.
+        """
+        import threading
+
+        LIMIT_KBPS = 500
+        LIMIT_BPS = LIMIT_KBPS * 1024
+        THRESHOLD_BPS = LIMIT_BPS * 1.10  # +10% acceptance threshold
+        FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+        CHUNK = 4096
+
+        print(f"\n[INFO] Parallel throttle: running 2 clients simultaneously at {LIMIT_KBPS} KB/s each...")
+
+        results: dict[int, float] = {}
+
+        def run_client(client_id: int) -> None:
+            bucket = TokenBucket(LIMIT_BPS)
+            sent = 0
+            started = time.perf_counter()
+            while sent < FILE_SIZE:
+                bucket.consume(CHUNK)
+                sent += CHUNK
+            elapsed = time.perf_counter() - started
+            results[client_id] = FILE_SIZE / elapsed
+
+        threads = [threading.Thread(target=run_client, args=(i,)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        for client_id, speed in sorted(results.items()):
+            kbps = speed / 1024
+            print(f"[OK] Client {client_id + 1}: {kbps:.1f} KB/s (Limit: {LIMIT_KBPS} KB/s)")
+            self.assertLessEqual(
+                speed,
+                THRESHOLD_BPS,
+                f"Client {client_id + 1}: {kbps:.1f} KB/s exceeded threshold {THRESHOLD_BPS / 1024:.1f} KB/s",
+            )
+
 class TestProgressRenderer(unittest.TestCase):
     @unittest.mock.patch('builtins.print')
     def test_progress_never_decreases(self, mock_print):
