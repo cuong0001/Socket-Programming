@@ -16,14 +16,19 @@ from users import UserRegistry, UsernameInUse
 # `python server.py <port>`. Default to 9000 when omitted.
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9000
 
-# Optional host override as the second argument. Default "" binds every
-# interface (INADDR_ANY), so the client can reach it on 127.0.0.1.
-HOST = sys.argv[2] if len(sys.argv) > 2 else ""
-
-# Optional third argument to override max_clients (default from config.py
-# is 10). Mainly for demoing SERVER_BUSY without needing 11 terminals --
-# e.g. `python server.py 9000 "" 3` makes it reachable with 4.
-MAX_CLIENTS = int(sys.argv[3]) if len(sys.argv) > 3 else None
+# PowerShell on Windows swallows empty string arguments `""` entirely.
+# So `python server.py 9000 "" 10` results in sys.argv == ['server.py', '9000', '10'].
+if len(sys.argv) == 3 and sys.argv[2].isdigit():
+    HOST = ""
+    MAX_CLIENTS = int(sys.argv[2])
+else:
+    # Optional host override as the second argument. Default "" binds every
+    # interface (INADDR_ANY), so the client can reach it on 127.0.0.1.
+    HOST = sys.argv[2] if len(sys.argv) > 2 else ""
+    
+    # Optional third argument to override max_clients (default from config.py
+    # is 10). Mainly for demoing SERVER_BUSY without needing 11 terminals.
+    MAX_CLIENTS = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
 # storage/ and logs/ live under the current working directory, resolved once
 # at startup. Anchoring them to where the server is launched (not to server.py)
