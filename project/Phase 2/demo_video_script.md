@@ -189,13 +189,18 @@ python tools/resume_demo.py
 Khi hiện:
 
 ```text
-[DEMO] Upload connection killed at ... bytes (37.0% of 20.0MB)
-[DEMO] Resuming upload from ... bytes...
-[DEMO] Upload resume at 37% successful; SHA-256 verified.
+[DEMO] === Phase 1: upload to 37%, then interrupt ===
+[DEMO] Server offset (before): 0 bytes (0.0%)
+[DEMO] Streaming from 0.0% to 37.0%...
+[DEMO] Connection killed at 7,761,920 bytes (37.0% of 20.0MB)
 
-[DEMO] Upload connection killed at ... bytes (73.0% of 20.0MB)
-[DEMO] Resuming upload from ... bytes...
-[DEMO] Upload resume at 73% successful; SHA-256 verified.
+[DEMO] === Phase 2: resume from 37%, upload to 73%, then interrupt ===
+[DEMO] Server offset (before): 7,761,920 bytes (37.0%)
+[DEMO] Streaming from 37.0% to 73.0%...
+[DEMO] Connection killed at 15,310,848 bytes (73.0% of 20.0MB)
+
+[DEMO] === Phase 3: resume from 73% to 100% via client.py ===
+[DEMO] ✅ Two-interrupt upload resume successful! SHA-256 verified by server.
 ```
 
 nói:
@@ -205,9 +210,13 @@ nói:
 Khi hiện:
 
 ```text
-[DEMO] Download connection killed at 50.0% of 20.0MB
-[DEMO] Resuming download from 10485760 bytes...
-[DEMO] Download resume at 50% successful; SHA-256 verified.
+[DEMO] === Download Phase 1: download to 50%, then interrupt ===
+[DEMO] Server offset (before download): 0 bytes (0.0%)
+[DEMO] Receiving from 0.0% to 50.0%...
+[DEMO] Download killed at 10,485,760 bytes (50.0% of 20.0MB)
+
+[DEMO] === Download Phase 2: resume from 50% to 100% via client.py ===
+[DEMO] ✅ Download resume successful! SHA-256 verified by client.
 ```
 
 nói:

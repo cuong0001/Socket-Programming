@@ -83,7 +83,7 @@ Xem [`docs/protocol.md`](docs/protocol.md) và [`docs/architecture.md`](docs/arc
 
 ## Nghiệm thu release
 
-Kết quả dưới đây được đo trên commit tích hợp `f156061`:
+Kết quả test/stress/throttle dưới đây được đo trên commit tích hợp `f156061`. Kịch bản resume được cập nhật theo commit merge PR #31 `8eccdca`:
 
 ```text
 Full suite: 69/69 tests pass
