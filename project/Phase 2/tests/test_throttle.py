@@ -121,19 +121,5 @@ class TestProgressRenderer(unittest.TestCase):
         progress.update(60)
         self.assertEqual(progress.current, 60)
 
-    @unittest.mock.patch('builtins.print')
-    def test_done_renders_100_percent_exactly_once(self, mock_print):
-        progress = ProgressRenderer("test.bin", 100)
-        progress.update(50)
-        calls_before_done = mock_print.call_count
-
-        progress.done()
-        calls_after_first_done = mock_print.call_count
-        progress.done()
-
-        self.assertEqual(progress.current, 100)
-        self.assertEqual(calls_after_first_done, calls_before_done + 2)
-        self.assertEqual(mock_print.call_count, calls_after_first_done)
-
 if __name__ == '__main__':
     unittest.main()

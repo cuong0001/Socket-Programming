@@ -48,6 +48,6 @@ class ProgressRenderer:
     def done(self) -> None:
         # Force a final render at 100% and print a newline to prevent overriding
         if not self._finished:
+            self._finished = True
             self.update(self.total)
             print()
-            self._finished = True
