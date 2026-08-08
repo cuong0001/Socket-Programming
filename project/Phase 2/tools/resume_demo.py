@@ -106,8 +106,10 @@ def main():
         
         if result.returncode == 0:
             print(f"\n[DEMO] ✅ Resume successful! SHA-256 verified by server.")
+            return 0
         else:
             print(f"\n[DEMO] ❌ Resume failed (exit code {result.returncode})")
+            return 1
     
     finally:
         server_proc.terminate()
@@ -116,5 +118,4 @@ def main():
         print(f"[DEMO] Server stopped. Test file cleaned up.")
 
 if __name__ == "__main__":
-    main()
-
+    raise SystemExit(main())

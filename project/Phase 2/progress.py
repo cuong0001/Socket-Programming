@@ -51,4 +51,3 @@ class ProgressRenderer:
             self._finished = True
             self.update(self.total)
             print()
-            
