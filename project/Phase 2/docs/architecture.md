@@ -82,7 +82,7 @@ Nghiệm thu cuối được chạy trên commit tích hợp `f156061` (Windows,
 | `test_file_busy.py` | Kết nối thứ hai dùng username đang hoạt động | Nhận `USERNAME_IN_USE`, giải thích vì sao `FILE_BUSY` không reachable. |
 | `test_storage_service.py` | Cleanup lock và containment | Entry được dọn; username escape bị chặn. |
 | `test_throttle.py` | Ba upload 2 MiB ở 500 KB/s | 472,42 / 471,15 / 471,55 KB/s; đều dưới limit 500 KB/s và ngưỡng +10%; lưu CSV. |
-| `tools/resume_demo.py` | Ngắt upload 20 MiB ở 40%, reconnect | Ngắt và resume đúng tại 8.388.608 byte; đạt 100%; SHA-256 khớp; cleanup thành công. |
+| `tools/resume_demo.py` | Lần lượt ngắt upload 20 MiB ở 37% và 73%, sau đó ngắt download ở 50% | Cả ba kịch bản đều reconnect đúng offset; đạt 100%; SHA-256 khớp; cleanup thành công. |
 
 Artifact được lưu tại:
 

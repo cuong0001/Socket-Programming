@@ -88,7 +88,7 @@ Kết quả dưới đây được đo trên commit tích hợp `f156061`:
 ```text
 Full suite: 69/69 tests pass
 Stress: 240/240 client pass, 1.680 operations, 0 failure
-Resume: ngắt ở 8.388.608 byte (40%), reconnect đúng offset, SHA-256 OK
+Resume: upload ngắt ở 37% và 73%; download ngắt ở 50%; mỗi lần reconnect đúng offset và SHA-256 OK
 Throttle: 472,42 / 471,15 / 471,55 KB/s với limit 500 KB/s
 ```
 

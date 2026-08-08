@@ -184,27 +184,35 @@ python tools/resume_demo.py
 
 ### Lời thoại gợi ý khi script chạy
 
-> Script tạo một file ngẫu nhiên 20 MiB và tính SHA-256 của toàn bộ file. Kết nối đầu tiên upload khoảng 40%, sau đó socket bị đóng cưỡng bức để mô phỏng mất mạng, không gửi LOGOUT và không hoàn tất transfer.
+> Script tạo một file ngẫu nhiên 20 MiB và tính SHA-256 của toàn bộ file. Nó kiểm tra hai trường hợp upload bị ngắt ở khoảng 37% và 73%, rồi kiểm tra download bị ngắt ở 50%. Mỗi lần, socket bị đóng cưỡng bức để mô phỏng mất mạng trước khi client reconnect và tiếp tục từ offset server hoặc file `.part` đã lưu.
 
 Khi hiện:
 
 ```text
-Connection killed at 8,388,608 bytes (40.0% of 20.0MB)
+[DEMO] Upload connection killed at ... bytes (37.0% of 20.0MB)
+[DEMO] Resuming upload from ... bytes...
+[DEMO] Upload resume at 37% successful; SHA-256 verified.
+
+[DEMO] Upload connection killed at ... bytes (73.0% of 20.0MB)
+[DEMO] Resuming upload from ... bytes...
+[DEMO] Upload resume at 73% successful; SHA-256 verified.
 ```
 
 nói:
 
-> Server giữ file `.part` và sidecar thay vì xóa dữ liệu đã nhận.
+> Server giữ file `.part` và sidecar thay vì xóa dữ liệu đã nhận. Hai mốc khác nhau chứng minh resume không phụ thuộc vào một offset cố định.
 
 Khi hiện:
 
 ```text
-Resuming upload from 8388608 bytes...
+[DEMO] Download connection killed at 50.0% of 20.0MB
+[DEMO] Resuming download from 10485760 bytes...
+[DEMO] Download resume at 50% successful; SHA-256 verified.
 ```
 
 nói:
 
-> Client reconnect bằng cùng username và metadata. Server xác nhận file staging tương thích và trả đúng offset 8.388.608, nên client chỉ gửi phần còn thiếu thay vì gửi lại từ đầu.
+> Khi upload, client reconnect bằng cùng username và metadata; server xác nhận staging tương thích và trả đúng offset của từng lần ngắt. Khi download, client giữ file `.part` 10 MiB và yêu cầu tiếp tục từ offset 10.485.760 byte, thay vì tải lại từ đầu.
 
 Kết thúc phải quay rõ:
 
@@ -218,7 +226,7 @@ Kết thúc phải quay rõ:
 
 ### Lời thoại kết thúc phần resume
 
-> Sau khi nhận đủ byte, server hash toàn bộ file, so sánh SHA-256 và chỉ atomic commit khi digest khớp. File tạm cục bộ và server demo đều được cleanup.
+> Sau khi nhận đủ byte, server hash toàn bộ file upload, so sánh SHA-256 và chỉ atomic commit khi digest khớp. Client cũng xác minh SHA-256 của file download hoàn chỉnh. Các file tạm và server demo đều được cleanup.
 
 ## 4:35–5:05 — Bằng chứng throttle
 
@@ -312,7 +320,7 @@ Mở bảng kết quả trong `docs/architecture.md` hoặc thư mục `docs/tes
 
 ### Lời thoại gợi ý
 
-> Trên commit release, toàn bộ 69 test đều pass. Stress đạt 240 trên 240 client với 1.680 operations và không có failure. Resume thành công từ đúng offset 40%, SHA-256 khớp. Throttle ba lần đều dưới giới hạn. Hệ thống đáp ứng concurrency, protocol framing, namespace, resume, progress, throttle và xử lý server đầy.
+> Trên commit release, toàn bộ 69 test đều pass. Stress đạt 240 trên 240 client với 1.680 operations và không có failure. Hai lần upload resume ở 37% và 73%, cùng download resume ở 50%, đều tiếp tục đúng offset và có SHA-256 khớp. Throttle ba lần đều dưới giới hạn. Hệ thống đáp ứng concurrency, protocol framing, namespace, resume, progress, throttle và xử lý server đầy.
 
 ## 3. Dọn dẹp sau khi quay
 
@@ -335,8 +343,9 @@ Không cần quay phần dọn dẹp nếu video đã đủ thời lượng.
 - [ ] Video dài từ 5 đến 8 phút.
 - [ ] Có cảnh ba progress bar truyền đồng thời, không chỉ ba client đứng idle.
 - [ ] Có ít nhất một UPLOAD, LIST và DOWNLOAD thành công.
-- [ ] Có cảnh ngắt upload ở 40% và reconnect đúng offset 8.388.608.
-- [ ] Có cảnh SHA-256 OK sau resume.
+- [ ] Có cảnh ngắt upload ở 37% và 73%, mỗi lần reconnect đúng offset.
+- [ ] Có cảnh ngắt download ở 50%, resume từ offset 10.485.760 byte.
+- [ ] Có cảnh SHA-256 OK sau từng lần upload/download resume.
 - [ ] Có cảnh stress `240/240`, hoặc ít nhất artifact JSON/CSV rõ ràng.
 - [ ] Có cảnh throttle CSV với ba lần đo.
 - [ ] Có cảnh `FILE_EXISTS` và `SERVER_BUSY` nếu đủ thời gian.
