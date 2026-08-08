@@ -71,22 +71,28 @@ python -m pip install -r requirements-test.txt
 python -m unittest discover -s tests -t tests -v
 ```
 
-Branch nền sau PR #28 có 66 test pass; branch client acceptance của PR #30 báo 65 test pass trên base riêng. Trước khi nộp cần chạy lại full suite sau khi merge tất cả branch để số lượng và thời gian thuộc đúng một revision.
+Nghiệm thu test/stress/throttle được chạy trên commit tích hợp `f156061` (Windows, Python 3.14 trong môi trường kiểm tra): **69/69 test pass trong 51,309 giây**. Kịch bản resume trong bảng dưới đã được cập nhật theo commit merge PR #31 `8eccdca`, bổ sung hai lần ngắt upload và một lần ngắt download.
 
 | Bằng chứng | Kịch bản | Kết quả mong đợi |
 |---|---|---|
 | `test_multi.py` | 10 client đồng thời, ba vòng, cùng filename khác username | Không xung đột namespace hoặc dữ liệu. |
-| `tools/stress_clients.py` | 12 client, 20 vòng, seed 2026 | 240/240 client pass, xuất JSON/CSV. |
+| `tools/stress_clients.py` | 12 client, 20 vòng, seed 2026 | 240/240 client pass; 1.680 operations; 0 failure; 11,24 giây; xuất JSON/CSV. |
 | `test_churn.py` | 500 vòng connect/LOGIN/LOGOUT | Thread/handle quay gần baseline. |
 | `test_server_busy.py` | Kết nối vượt capacity rồi giải phóng slot | Client dư nhận `SERVER_BUSY`; kết nối sau đó thành công. |
 | `test_file_busy.py` | Kết nối thứ hai dùng username đang hoạt động | Nhận `USERNAME_IN_USE`, giải thích vì sao `FILE_BUSY` không reachable. |
 | `test_storage_service.py` | Cleanup lock và containment | Entry được dọn; username escape bị chặn. |
-| `test_throttle.py` | Ba upload 2 MiB ở 500 KB/s | Tốc độ nằm trong ngưỡng +10%, lưu CSV. |
-| `tools/resume_demo.py` | Ngắt upload 20 MiB ở khoảng 40%, reconnect | Resume đúng offset và chỉ commit khi SHA-256 khớp. |
+| `test_throttle.py` | Ba upload 2 MiB ở 500 KB/s | 472,42 / 471,15 / 471,55 KB/s; đều dưới limit 500 KB/s và ngưỡng +10%; lưu CSV. |
+| `tools/resume_demo.py` | Lần lượt ngắt upload 20 MiB ở 37% và 73%, sau đó ngắt download ở 50% | Cả ba kịch bản đều reconnect đúng offset; đạt 100%; SHA-256 khớp; cleanup thành công. |
+
+Artifact được lưu tại:
+
+- `docs/test-results/stress.json`: cấu hình, summary, failure list và kết quả từng logical client.
+- `docs/test-results/stress.csv`: 240 dòng kết quả client để xử lý bằng bảng tính.
+- `docs/test-results/throttle.csv`: ba lần đo tốc độ thực tế.
 
 ## 8. Kịch bản demo
 
-File [`../demo_commands.txt`](../demo_commands.txt) chứa kịch bản 5–8 phút: nhiều user, namespace, username trùng, file trùng, `SERVER_BUSY`, kiểm tra server còn sống và phần resume/throttle tùy chọn.
+File [`../demo_video_script.md`](../demo_video_script.md) chứa timeline, lời thoại và lệnh quay video 5–8 phút: ba client truyền đồng thời, namespace, stress, resume đúng offset, SHA-256, throttle, file trùng và `SERVER_BUSY`.
 
 ## 9. Kết luận
 

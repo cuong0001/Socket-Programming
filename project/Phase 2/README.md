@@ -79,8 +79,33 @@ python -m unittest discover -s tests -t tests -p test_stress_clients.py -v
 - **Logging:** logger dùng chung, thread-safe, ghi command/transfer vào `logs/server.log` và stdout, kể cả nhánh lỗi.
 - **SERVER_BUSY:** khi hết slot, server trả mã lỗi có cấu trúc mà không crash; slot được giải phóng khi session kết thúc.
 
-Xem [`docs/protocol.md`](docs/protocol.md) và [`docs/report_cuong_server_lock_duplicate.md`](docs/report_cuong_server_lock_duplicate.md) để biết chi tiết.
+Xem [`docs/protocol.md`](docs/protocol.md) và [`docs/architecture.md`](docs/architecture.md) để biết chi tiết.
+
+## Nghiệm thu release
+
+Kết quả test/stress/throttle dưới đây được đo trên commit tích hợp `f156061`. Kịch bản resume được cập nhật theo commit merge PR #31 `8eccdca`:
+
+```text
+Full suite: 69/69 tests pass
+Stress: 240/240 client pass, 1.680 operations, 0 failure
+Resume: upload ngắt ở 37% và 73%; download ngắt ở 50%; mỗi lần reconnect đúng offset và SHA-256 OK
+Throttle: 472,42 / 471,15 / 471,55 KB/s với limit 500 KB/s
+```
+
+Chạy stress (server phải đang lắng nghe ở port 9000):
+
+```powershell
+python tools/stress_clients.py --host 127.0.0.1 --port 9000 --clients 12 --rounds 20 --seed 2026
+```
+
+Chạy resume demo khi port 9000 đang rảnh:
+
+```powershell
+python tools/resume_demo.py
+```
+
+Artifact định lượng nằm trong [`docs/test-results/`](docs/test-results/).
 
 ## Demo
 
-Làm theo [`demo_commands.txt`](demo_commands.txt) để trình bày namespace, username trùng, file trùng, `SERVER_BUSY` và server vẫn hoạt động sau khi từ chối client.
+Làm theo [`demo_video_script.md`](demo_video_script.md) để quay video 5–8 phút, gồm ba client truyền đồng thời, upload/download cơ bản, stress, resume sau khi ngắt giữa chừng, SHA-256, throttle, file trùng và `SERVER_BUSY`.

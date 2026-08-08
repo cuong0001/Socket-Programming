@@ -1208,7 +1208,7 @@ def test_throttle_limit():
 | 6:20–7:10 | Max client + 1 → ERROR; upload trùng tên → ERROR; 2 client cùng alice LOGIN → `USERNAME_IN_USE` (giải thích ngắn tại sao `FILE_BUSY` không xảy ra được) | Cường |
 | 7:10–8:00 | Rubric map + Q&A | Cả nhóm |
 
-**Phương án dự phòng demo:** file test nằm sẵn, lệnh copy-paste trong `demo_commands.txt`, terminal đặt tên Alice/Bob/Server, video dự phòng quay trên đúng release commit. Không phụ thuộc Internet.
+**Phương án dự phòng demo:** file test nằm sẵn, timeline/lời thoại/lệnh copy-paste trong `demo_video_script.md`, terminal đặt tên Alice/Bob/Carol/Server, video dự phòng quay trên đúng release commit. Không phụ thuộc Internet.
 
 ---
 
