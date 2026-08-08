@@ -10,7 +10,7 @@ from session import ErrorCode, Session, valid_username
 from storage_service import FileLockRegistry, StorageService
 from users import UserRegistry, UsernameInUse
 
-# python server.py 9000  [host]
+# python server.py 9000 [host] [max_clients]
 
 # Port is the first argument -- the assignment launches the server as
 # `python server.py <port>`. Default to 9000 when omitted.
@@ -20,6 +20,11 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9000
 # interface (INADDR_ANY), so the client can reach it on 127.0.0.1.
 HOST = sys.argv[2] if len(sys.argv) > 2 else ""
 
+# Optional third argument to override max_clients (default from config.py
+# is 10). Mainly for demoing SERVER_BUSY without needing 11 terminals --
+# e.g. `python server.py 9000 "" 3` makes it reachable with 4.
+MAX_CLIENTS = int(sys.argv[3]) if len(sys.argv) > 3 else None
+
 # storage/ and logs/ live under the current working directory, resolved once
 # at startup. Anchoring them to where the server is launched (not to server.py)
 # lets the test harness isolate each run in its own temp dir and keeps test
@@ -28,6 +33,8 @@ HOST = sys.argv[2] if len(sys.argv) > 2 else ""
 config = ServerConfig()
 config.host = HOST
 config.port = PORT
+if MAX_CLIENTS is not None:
+    config.max_clients = MAX_CLIENTS
 config.storage_dir = os.path.join(os.getcwd(), "storage")
 config.log_file = os.path.join(os.getcwd(), "logs", "server.log")
 

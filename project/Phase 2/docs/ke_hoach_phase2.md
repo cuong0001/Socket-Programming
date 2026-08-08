@@ -59,7 +59,7 @@ Cả hai PR chặn đường đều đã vào `upstream/main`. `session.py`, `se
 1. **Đóng hoặc rebase PR #21**: rebase lên `upstream/main` hiện tại, bỏ hết phần `client.py`/`file_handler.py`/`resume.py` (đã có từ #19), chỉ giữ `progress.py` + `rate_limit.py` + `test_throttle.py`.
 2. **Hưng**: nối `progress.py`/`rate_limit.py` vào luồng UPLOAD/DOWNLOAD thật của `client.py` (Ngày 6, Phần 6); thêm lệnh `DELETE` vào `client.py` (server đã sẵn sàng nhận).
 3. **Bình**: `tests/test_multi.py` (10 client đồng thời, bắt buộc theo đề — R2.1), `tools/stress_clients.py` (Ngày 9), và mini-RFC report tổng hợp (Phần 7).
-4. **Cường**: `tests/test_churn.py` (500 connect/disconnect, đo leak thread/handle — Phần 5); cân nhắc thêm test tự động cho `FILE_BUSY` (2 session cùng user cùng file) và `handle_file_delete` (hiện chỉ test thủ công, xem "Nhật ký triển khai").
+4. **Cường**: `tests/test_churn.py` (500 connect/disconnect, đo leak thread/handle — Phần 5, PR #25, đã xong) và `tests/test_server_busy.py` (PR #25, đã xong). ~~cân nhắc thêm test tự động cho FILE_BUSY~~ — đã xác nhận (và test hoá trong `tests/test_file_busy.py`) rằng `FILE_BUSY` **không thể xảy ra** qua giao thức thật hiện tại: `UserRegistry` chỉ cho 1 session/username, nên 2 session không bao giờ cùng giữ 1 `(username, filename)` lock. `handle_file_delete` đã có test tích hợp từ PR #23.
 
 ### File nào ai giữ (tham khảo nhanh)
 
@@ -412,7 +412,7 @@ class Session:
 
 **Cường — `storage_service.py` với `FileLockRegistry`:**
 
-Lock theo `(username, filename)` — **không chỉ theo username**. 2 client cùng user upload cùng file đồng thời sẽ có 1 người chờ hoặc nhận `ERROR_FILE_BUSY`.
+Lock theo `(username, filename)` — **không chỉ theo username**. Về lý thuyết, 2 client cùng user upload cùng file đồng thời sẽ có 1 người chờ hoặc nhận `ERROR_FILE_BUSY` — nhưng trên thực tế `UserRegistry` chỉ cho 1 session/username tồn tại cùng lúc (LOGIN thứ 2 bị từ chối `USERNAME_IN_USE` ngay lập tức), nên tình huống 2 session thật sự tranh nhau 1 lock **không thể xảy ra qua giao thức hiện tại** — xem `tests/test_file_busy.py` và docstring của `storage_service.py`. Lock vẫn giữ nguyên vì đây là phòng thủ nội bộ, phòng khi kiến trúc đổi sang cho phép nhiều session/username.
 
 ```python
 # storage_service.py
@@ -1179,7 +1179,7 @@ def test_throttle_limit():
 | □ | `python tests/test_throttle.py` — ≤ ngưỡng + 10%, 3 lần, CSV saved | Hưng | |
 | □ | Client thứ (max+1) nhận ERROR_SERVER_BUSY, server không crash | Cường | |
 | □ | bob không đụng được file alice — NOT_FOUND | Cường | |
-| □ | 2 client cùng alice upload cùng file → 1 người FILE_BUSY | Cường | |
+| □ | 2 client cùng alice LOGIN cùng lúc → người thứ 2 nhận `USERNAME_IN_USE` ngay (không phải `FILE_BUSY` — xem ghi chú Phần 3) | Cường | |
 | □ | Upload trùng tên file hoàn chỉnh → ERROR_FILE_EXISTS | Cường | |
 | □ | `python -m unittest tests.test_protocol` — golden vector khớp byte-for-byte | Bình | |
 | □ | `DOWNLOAD ../secret` → ERROR, không crash | Bình | |
@@ -1205,7 +1205,7 @@ def test_throttle_limit():
 | 2:10–3:20 | Chạy stress 10-12 client, chỉ log/summary PASS | Bình + Cường |
 | 3:20–5:20 | Upload file lớn, ngắt giữa chừng, reconnect, resume đúng offset + checksum | Hưng |
 | 5:20–6:20 | Progress bar + throttle 500 KB/s, chỉ kết quả ≤ 550 KB/s | Hưng |
-| 6:20–7:10 | Max client + 1 → ERROR; upload trùng tên → ERROR; 2 client cùng file → FILE_BUSY | Cường |
+| 6:20–7:10 | Max client + 1 → ERROR; upload trùng tên → ERROR; 2 client cùng alice LOGIN → `USERNAME_IN_USE` (giải thích ngắn tại sao `FILE_BUSY` không xảy ra được) | Cường |
 | 7:10–8:00 | Rubric map + Q&A | Cả nhóm |
 
 **Phương án dự phòng demo:** file test nằm sẵn, lệnh copy-paste trong `demo_commands.txt`, terminal đặt tên Alice/Bob/Server, video dự phòng quay trên đúng release commit. Không phụ thuộc Internet.
@@ -1338,7 +1338,8 @@ Kiểm chứng: payload = 2+8+8+8+32 = 58 → LENGTH = 2+2+58 = 62 = 0x3E ✓
 | 500 connect/disconnect | R2.1 | Loop, đo thread/handle trước-sau | Thread/file ≤ baseline + 2/5; server sống |
 | Fragment/coalesce packet | R2.2 | Fake socket 1 byte/lần + ghép 3 packet | Đọc đúng 3 packet; oversize bị từ chối |
 | Alice/Bob same filename | R2.3 | 2 user upload `report.bin` hash khác; list/download chéo | Mỗi user chỉ thấy bản mình; cross-access NOT_FOUND |
-| 2 session cùng user, cùng file | R2.3/R2.7 | 2 thread cùng alice upload `big.bin` | 1 lock, 1 FILE_BUSY; file cuối không hỏng |
+| `FileLockRegistry` tự tranh chấp (unit-level, không qua protocol) | R2.3/R2.7 | 2 thread gọi `FileLockRegistry.acquire()` trực tiếp cùng key | 1 acquire thành công, 1 timeout — xem `tests/test_storage_service.py` |
+| 2 session cùng user (qua protocol thật) | R2.1 | 2 client LOGIN cùng username | Người 2 nhận `USERNAME_IN_USE` ngay — không tới được bước upload để tranh file lock, nên `FILE_BUSY` không quan sát được qua protocol (đã xác nhận, xem `tests/test_file_busy.py`) |
 | Resume upload ở 37% và 73% | R2.4 | Subprocess kill sau N giây | Bytes gửi lại ≤ remainder + 1 chunk; SHA-256 đúng |
 | Resume download ở 37% và 73% | R2.4 | Đóng client sau N byte, giữ .part | Chunk đầu đúng offset; hash cuối đúng |
 | Progress accuracy | R2.5 | Inject callback ghi danh sách percent/bytes | 0≤p≤100; không giảm; kết thúc 100% |

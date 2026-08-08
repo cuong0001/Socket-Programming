@@ -1,0 +1,77 @@
+DEMO GIAI ĐOẠN 2 — 5 ĐẾN 8 PHÚT
+================================
+
+Chạy từ `project/Phase 2`. Mở các terminal Server, Alice, Bob, Carol, Dave và Overflow.
+
+CHUẨN BỊ
+--------
+
+    python testdata\make_testdata.py
+
+[SERVER — giữ chạy]
+
+    python server.py 9000 "" 4
+
+GIỚI THIỆU NAMESPACE VÀ NHIỀU CLIENT
+------------------------------------
+
+[ALICE — giữ terminal mở]
+
+    python client.py 127.0.0.1 9000 --username alice
+    UPLOAD testdata\512b.bin
+    LIST
+
+[BOB — giữ terminal mở]
+
+    python client.py 127.0.0.1 9000 --username bob
+    UPLOAD testdata\512b.bin
+    LIST
+
+Giải thích: Alice và Bob dùng cùng tên file nhưng không xung đột vì mỗi user có namespace riêng.
+
+[CAROL — giữ terminal mở]
+
+    python client.py 127.0.0.1 9000 --username carol
+    LIST
+
+USERNAME_IN_USE VÀ FILE_EXISTS
+------------------------------
+
+[DAVE — chạy một lần]
+
+    python client.py 127.0.0.1 9000 --username alice "LIST"
+
+Kết quả mong đợi: `USERNAME_IN_USE` (0x0069), vì vẫn còn một slot trống.
+
+[ALICE]
+
+    UPLOAD testdata\512b.bin
+
+Kết quả mong đợi: `FILE_EXISTS` (0x0070); server không ghi đè file hoàn chỉnh.
+
+SERVER_BUSY
+-----------
+
+[DAVE — giữ terminal mở]
+
+    python client.py 127.0.0.1 9000 --username dave
+    LIST
+
+[OVERFLOW]
+
+    python client.py 127.0.0.1 9000 --username overflow "LIST"
+
+Kết quả mong đợi: `SERVER_BUSY` (0x0078). Quay lại Alice và gõ `LIST` để chứng minh server vẫn phục vụ client cũ.
+
+RESUME VÀ THROTTLE (NẾU ĐÃ MERGE PR CLIENT ACCEPTANCE)
+------------------------------------------------------
+
+    python tools\resume_demo.py
+    python -m unittest discover -s tests -t tests -p test_throttle.py -v
+
+Cho xem `docs/test-results/throttle.csv`; cả ba lần đo phải nằm trong giới hạn cho phép.
+
+DỌN DẸP
+-------
+
+Gõ `exit` ở các terminal client, sau đó nhấn `Ctrl+C` ở terminal server.
