@@ -51,21 +51,21 @@ def recv_packet(sock):
 def partial_upload(filepath: str, file_hash: bytes, filesize: int):
     """Connect, login, start upload, then forcibly close socket after KILL_AFTER_BYTES."""
     sock = socket.create_connection((HOST, PORT))
-    
+
     # Step 1: Login
     send_packet(sock, P.LOGIN, payload=P.pack_text(USERNAME))
     op, uid, payload = recv_packet(sock)
     assert op == P.ACK, f"LOGIN failed: {op}"
     _, user_id, _ = P.unpack_ack(payload)
     print(f"[DEMO] Logged in as '{USERNAME}' (uid={user_id})")
-    
+
     # Step 2: Send FILE_UPLOAD header
     upload_req = P.pack_upload(os.path.basename(filepath), filesize, 0, file_hash)
     send_packet(sock, P.FILE_UPLOAD, payload=upload_req, user_id=user_id)
     op, _, payload = recv_packet(sock)
     assert op == P.ACK, f"FILE_UPLOAD rejected: {op}"
     print(f"[DEMO] Server accepted upload. Starting partial transfer...")
-    
+
     # Step 3: Send chunks until KILL_AFTER_BYTES, then drop connection
     sent = 0
     with open(filepath, "rb") as f:
@@ -75,7 +75,7 @@ def partial_upload(filepath: str, file_hash: bytes, filesize: int):
                 break
             send_packet(sock, P.FILE_CHUNK, payload=P.pack_chunk(sent, chunk), user_id=user_id)
             sent += len(chunk)
-    
+
     # Forcibly close — no LOGOUT, no EOF chunk
     sock.close()
     print(f"[DEMO] Connection killed at {sent:,} bytes ({sent/filesize*100:.1f}% of {filesize/1024/1024:.1f}MB)")
