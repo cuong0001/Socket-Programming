@@ -228,7 +228,8 @@ Kết thúc phải quay rõ:
 ```text
 100.0%
 [OK] SHA256 Verification OK
-[DEMO] Resume successful!
+[DEMO] ✅ Two-interrupt upload resume successful! SHA-256 verified by server.
+[DEMO] ✅ Download resume successful! SHA-256 verified by client.
 [DEMO] Server stopped.
 [DEMO] Test file cleaned up.
 ```
