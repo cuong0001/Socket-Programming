@@ -92,7 +92,7 @@ Artifact được lưu tại:
 
 ## 8. Kịch bản demo
 
-File [`../demo_commands.txt`](../demo_commands.txt) chứa kịch bản 5–8 phút: nhiều user, namespace, username trùng, file trùng, `SERVER_BUSY`, kiểm tra server còn sống và phần resume/throttle tùy chọn.
+File [`../demo_video_script.md`](../demo_video_script.md) chứa timeline, lời thoại và lệnh quay video 5–8 phút: ba client truyền đồng thời, namespace, stress, resume đúng offset, SHA-256, throttle, file trùng và `SERVER_BUSY`.
 
 ## 9. Kết luận
 
