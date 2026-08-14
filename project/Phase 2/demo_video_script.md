@@ -1,301 +1,84 @@
-# Kịch bản video demo Phase 2 (5–8 phút)
+# Kịch bản video demo Phase 2 (~9 phút, chia theo khối — không xen kẽ)
 
-Kịch bản này được thiết kế cho video dài khoảng **7 phút**, đáp ứng trực tiếp yêu cầu đề bài:
+Bản này thay cho cách chia xen kẽ trước đây (mỗi người nói vài câu rồi đổi lượt liên tục). Ở đây mỗi người trình bày **trọn một khối liên tục ~3 phút**, đúng phần việc mình đã code, rồi mới bàn giao — dễ quay hơn (mỗi người có thể tự quay riêng khối của mình rồi ghép lại), dễ luyện tập hơn, và người xem theo dõi mạch lạc hơn vì không phải nhảy qua lại giữa các chủ đề.
+
+Tổng thời lượng ước tính **~9 phút** (3 khối × ~3 phút), nhỉnh hơn mốc 5–8 phút gợi ý của đề một chút. Nếu cần rút ngắn, xem mục "Cách rút gọn nếu thiếu thời gian" ở cuối mỗi khối — không cắt phần nào ảnh hưởng tới 4 tiêu chí bắt buộc của đề:
 
 - truyền file cơ bản;
 - tối thiểu ba client hoạt động đồng thời;
 - ngắt kết nối giữa chừng và resume thành công;
 - kiểm tra SHA-256 sau resume.
 
-Ngoài phần bắt buộc, video còn cho thấy namespace riêng, stress 12 client, progress, throttle, `FILE_EXISTS` và `SERVER_BUSY`.
+## Phân công 3 khối
 
-### Phân công ba thành viên
+| Khối | Thời lượng | Người trình bày | Nội dung (đúng phần việc đã code) |
+|---|---:|---|---|
+| 1 | 0:00–3:00 | **Cường** | Kiến trúc server, namespace riêng, chính sách `FILE_EXISTS`, giới hạn `SERVER_BUSY` |
+| 2 | 3:00–6:00 | **Bình** | Giao thức nhị phân (mini-RFC), stress test 12 client × 20 vòng |
+| 3 | 6:00–9:00 | **Hưng** | Resume upload/download, progress + throttle, tổng kết |
 
-| Thành viên | Phần phụ trách | Thời lượng dự kiến |
-|---|---|---:|
-| **Cường** | Giới thiệu kiến trúc/giao thức, khởi động server, LIST/DOWNLOAD cơ bản, chứng minh server còn hoạt động và tổng kết | ~2 phút 20 giây |
-| **Bình** | Ba client upload đồng thời, stress 12 × 20, throttle và chính sách `FILE_EXISTS` | ~2 phút 30 giây |
-| **Hưng** | Chuẩn bị và chạy resume upload/download, trình bày offset/SHA-256 và demo `SERVER_BUSY` | ~2 phút 15 giây |
+Mỗi khối **tự khởi động server riêng** ở đầu khối (lệnh cụ thể ghi ngay dưới tiêu đề khối), nên 3 khối hoàn toàn độc lập: quay liền mạch trong một buổi hay mỗi người tự quay riêng rồi dựng nối lại đều được, không phụ thuộc trạng thái của khối trước.
 
-Thời gian có thể lệch vài giây do tốc độ chạy lệnh. Khi chuyển người, người đang nói kết thúc bằng câu bàn giao ngắn; người tiếp theo đứng sẵn ở terminal của phần mình để video không bị ngắt quãng.
-
-## 1. Chuẩn bị trước khi bấm quay
-
-Thực hiện trước để thời gian tạo file và sắp xếp cửa sổ không tính vào video.
-
-### Môi trường
-
-Chạy tất cả lệnh từ:
+## Chuẩn bị chung (trước khi bấm quay, không tính vào video)
 
 ```powershell
 Set-Location "project/Phase 2"
-```
-
-Tạo dữ liệu mẫu:
-
-```powershell
 python testdata/make_testdata.py
 ```
 
-Kiểm tra port 9000 chưa bị chương trình khác sử dụng. Nên quay trên một checkout sạch để `storage/` và `downloads/` không chứa dữ liệu từ lần demo trước.
+- Dùng checkout sạch (hoặc xoá `storage/`, `logs/`, `downloads/` trước khi quay) để namespace không lẫn dữ liệu từ lần chạy trước.
+- Kiểm tra port 9000 chưa bị chương trình khác chiếm.
+- Mỗi khối bên dưới đã ghi rõ tên terminal cần mở — mở sẵn và đặt tên trước khi quay để không mất thời gian giữa chừng.
+- Font terminal đủ lớn, không để lộ đường dẫn/thông tin cá nhân không cần thiết.
 
-### Chuẩn bị terminal
+---
 
-Mở sáu terminal và đặt tên:
+# KHỐI 1 — CƯỜNG (0:00–3:00): Kiến trúc, namespace, FILE_EXISTS, SERVER_BUSY
 
-1. `SERVER`
-2. `ALICE`
-3. `BOB`
-4. `CAROL`
-5. `STRESS / RESUME`
-6. `CAPACITY`
+**Terminal cần mở:** `SERVER`, `ALICE`, `BOB`, `CAROL`, `DAVE`, `OVERFLOW`.
 
-Trong ba terminal Alice/Bob/Carol, dán sẵn các lệnh upload nhưng chưa nhấn Enter:
+### Lời mở đầu cho cả video (~20 giây)
 
-```powershell
-# ALICE
-python client.py 127.0.0.1 9000 --username video-alice --limit 500 "UPLOAD testdata/10mb.bin"
+> Xin chào, nhóm em gồm ba thành viên: Cường, Bình và Hưng, xin trình bày đồ án Phase 2 — hệ thống client/server truyền file qua giao thức nhị phân tự định nghĩa trên TCP. Video chia làm ba phần: em, Cường, sẽ trình bày kiến trúc server và cách xử lý nhiều user; sau đó Bình trình bày giao thức và bài test chịu tải; cuối cùng Hưng trình bày resume khi mất kết nối và giới hạn băng thông.
 
-# BOB
-python client.py 127.0.0.1 9000 --username video-bob --limit 500 "UPLOAD testdata/10mb.bin"
+### 1. Kiến trúc server (~40 giây)
 
-# CAROL
-python client.py 127.0.0.1 9000 --username video-carol --limit 500 "UPLOAD testdata/10mb.bin"
-```
+Mở nhanh `docs/architecture.md`, mục 1–3, trong lúc nói — không đọc nguyên văn, chỉ lướt qua các tiêu đề khi nhắc tới.
 
-Giới hạn 500 KB/s giúp mỗi upload 10 MiB kéo dài khoảng 20 giây, đủ để nhìn thấy cả ba client truyền đồng thời.
+> Server dùng mô hình thread-per-client: mỗi kết nối được giao cho một thread riêng, vì code đọc/ghi socket và file vốn là blocking I/O, nên không cần viết lại theo asyncio. Số client đồng thời bị giới hạn bằng semaphore. Điểm quan trọng là server luôn `accept()` kết nối TCP trước, rồi mới kiểm tra còn chỗ hay không — nếu từ chối ngay ở tầng hệ điều hành, phía client sẽ không phân biệt được là "server đầy" hay "server đã chết". Mỗi username có một thư mục lưu trữ riêng, và các thao tác trên cùng một file được khoá theo cặp username-filename để tránh xung đột.
 
-## 2. Timeline và lời thoại
+### 2. Khởi động server và namespace riêng (~50 giây)
 
-## 0:00–0:35 — Cường: Giới thiệu hệ thống
-
-### Hình ảnh
-
-Mở nhanh `docs/architecture.md` và `docs/protocol.md`, chỉ vào packet header và sơ đồ kiến trúc.
-
-### Lời thoại gợi ý
-
-> Đây là hệ thống truyền file qua TCP sử dụng giao thức nhị phân tự định nghĩa. Mỗi packet có LENGTH, OPCODE, USER_ID và PAYLOAD, toàn bộ số nguyên dùng network byte order. Server dùng mô hình thread-per-client có semaphore giới hạn số kết nối. Mỗi username có namespace riêng và các thao tác file được bảo vệ bằng lock theo cặp username và filename.
-
-Không đọc toàn bộ tài liệu; chỉ cho thấy packet header, opcode table và kiến trúc trong khoảng 30 giây.
-
-### Bàn giao
-
-> Tiếp theo, tôi khởi động server để Bình thực hiện kịch bản nhiều client đồng thời.
-
-## 0:35–0:55 — Cường: Khởi động server
-
-### Terminal `SERVER`
+**Terminal `SERVER`:**
 
 ```powershell
-python server.py 9000 "" 10
+python server.py 9000 "" 4
 ```
 
-### Lời thoại gợi ý
+> Em khởi động server ở port 9000, giới hạn tối đa 4 client cùng lúc — đặt thấp để một lát nữa dễ demo trường hợp server đầy. Server in ra thư mục storage, file log và số client tối đa ngay khi khởi động.
 
-> Server đang lắng nghe tại port 9000 và cho phép tối đa 10 client hoạt động. Storage và log được tạo trong thư mục Phase 2. Mỗi client được xử lý bởi một worker thread riêng.
-
-Chỉ vào các dòng `Storage dir`, `Log file` và `Max clients` nếu server in ra.
-
-### Bàn giao
-
-> Server đã sẵn sàng. Bình sẽ trình bày ba client upload đồng thời và cách hệ thống tách namespace.
-
-## 0:55–1:45 — Bình: Ba client truyền file đồng thời
-
-### Thao tác
-
-Lần lượt chuyển rất nhanh qua `ALICE`, `BOB`, `CAROL` và nhấn Enter cho ba lệnh đã dán sẵn. Khoảng cách giữa ba lần Enter nên dưới hai giây.
-
-Sau đó chia màn hình hoặc chuyển nhanh giữa ba terminal để cho thấy cả ba progress bar đang tăng cùng lúc.
-
-### Lời thoại gợi ý
-
-> Bây giờ ba client Alice, Bob và Carol cùng upload file 10 MiB. Cả ba dùng cùng tên `10mb.bin`, nhưng không xung đột vì dữ liệu được lưu trong ba namespace khác nhau. Mỗi client có token bucket riêng ở giới hạn 500 KB/s, nên các progress bar tiến đồng thời thay vì bị serialize toàn hệ thống.
-
-Chuyển sang `SERVER` khoảng 5 giây để cho thấy các dòng kết nối và transfer của ba client được ghi xen kẽ nhưng không chồng dòng.
-
-Đợi cả ba client hiện:
-
-```text
-[OK] SHA256 Verification OK
-100.0%
-```
-
-### Điểm cần nhìn thấy trong video
-
-- ba username khác nhau;
-- ba progress bar đang chạy trong cùng khoảng thời gian;
-- cả ba đạt SHA-256 OK;
-- progress kết thúc tại 100%.
-
-### Bàn giao
-
-> Ba transfer đã hoàn tất độc lập. Cường sẽ dùng một namespace để minh họa LIST và DOWNLOAD cơ bản.
-
-## 1:45–2:25 — Cường: LIST và DOWNLOAD cơ bản
-
-### Terminal `ALICE`
+**Terminal `ALICE`:**
 
 ```powershell
-python client.py 127.0.0.1 9000 --username video-alice "LIST"
-python client.py 127.0.0.1 9000 --username video-alice "DOWNLOAD 10mb.bin"
+python client.py 127.0.0.1 9000 --username alice "UPLOAD testdata/512b.bin"
+python client.py 127.0.0.1 9000 --username alice "LIST"
 ```
 
-### Terminal `BOB`
+**Terminal `BOB`:**
 
 ```powershell
-python client.py 127.0.0.1 9000 --username video-bob "LIST"
+python client.py 127.0.0.1 9000 --username bob "UPLOAD testdata/512b.bin"
+python client.py 127.0.0.1 9000 --username bob "LIST"
 ```
 
-### Lời thoại gợi ý
+> Alice và Bob cùng upload một file tên `512b.bin`, nhưng không hề xung đột — vì server lưu file theo namespace riêng của từng username. Lệnh LIST của Bob chỉ thấy file của Bob, không thấy file của Alice, dù hai người dùng chung một cái tên.
 
-> LIST của Alice và Bob đều thấy `10mb.bin`, nhưng đây là hai file nằm trong hai thư mục user khác nhau. Alice tải file về bằng DOWNLOAD. Client nhận file theo chunk, kiểm tra offset và chỉ commit file sau khi SHA-256 khớp hoàn toàn.
+### 3. Chính sách file trùng — FILE_EXISTS (~25 giây)
 
-Chỉ cần quay đến khi Alice hiện `SHA256 Verification OK` và 100%.
-
-### Bàn giao
-
-> Truyền file cơ bản đã thành công. Tiếp theo Bình sẽ chạy stress test theo đúng cấu hình nghiệm thu R2.1.
-
-## 2:25–3:05 — Bình: Stress 12 client và bằng chứng R2.1
-
-### Terminal `STRESS / RESUME`
+**Terminal `ALICE`:**
 
 ```powershell
-python tools/stress_clients.py --host 127.0.0.1 --port 9000 --clients 12 --rounds 20 --seed 2026
-```
-
-### Lời thoại gợi ý
-
-> Đây là script stress có seed cố định 2026. Mỗi vòng khởi chạy 12 logical client, trong khi server chỉ có 10 slot nên script cũng kiểm tra cơ chế SERVER_BUSY và retry. Mỗi client thực hiện login, upload, list, download, kiểm tra SHA-256, delete và logout.
-
-Chờ kết quả:
-
-```text
-[PASS] 240/240 clients; 1680 operations
-```
-
-Mở nhanh `docs/test-results/stress.json` hoặc `stress.csv`, chỉ vào:
-
-- `clients = 12`;
-- `rounds = 20`;
-- `seed = 2026`;
-- `successful_clients = 240`;
-- `failed_clients = 0`.
-
-### Bàn giao
-
-> Stress test không có client thất bại. Hưng sẽ tiếp tục với tiêu chí resume sau khi ngắt kết nối giữa chừng.
-
-## 3:05–3:20 — Hưng: Dừng server để chuẩn bị resume demo
-
-### Terminal `SERVER`
-
-Nhấn:
-
-```text
-Ctrl+C
-```
-
-### Lời thoại gợi ý
-
-> Phần resume demo sẽ tự khởi động một server riêng trên port 9000, nên tôi dừng server hiện tại trước.
-
-Đợi server cũ kết thúc hoàn toàn rồi mới chạy bước tiếp theo.
-
-## 3:20–4:35 — Hưng: Ngắt giữa chừng, reconnect và resume
-
-### Terminal `STRESS / RESUME`
-
-```powershell
-python tools/resume_demo.py
-```
-
-### Lời thoại gợi ý khi script chạy
-
-> Script tạo một file ngẫu nhiên 20 MiB và tính SHA-256 của toàn bộ file. Nó kiểm tra hai trường hợp upload bị ngắt ở khoảng 37% và 73%, rồi kiểm tra download bị ngắt ở 50%. Mỗi lần, socket bị đóng cưỡng bức để mô phỏng mất mạng trước khi client reconnect và tiếp tục từ offset server hoặc file `.part` đã lưu.
-
-Khi hiện:
-
-```text
-[DEMO] === Phase 1: upload to 37%, then interrupt ===
-[DEMO] Server offset (before): 0 bytes (0.0%)
-[DEMO] Streaming from 0.0% to 37.0%...
-[DEMO] Connection killed at 7,761,920 bytes (37.0% of 20.0MB)
-
-[DEMO] === Phase 2: resume from 37%, upload to 73%, then interrupt ===
-[DEMO] Server offset (before): 7,761,920 bytes (37.0%)
-[DEMO] Streaming from 37.0% to 73.0%...
-[DEMO] Connection killed at 15,310,848 bytes (73.0% of 20.0MB)
-
-[DEMO] === Phase 3: resume from 73% to 100% via client.py ===
-[DEMO] ✅ Two-interrupt upload resume successful! SHA-256 verified by server.
-```
-
-nói:
-
-> Server giữ file `.part` và sidecar thay vì xóa dữ liệu đã nhận. Hai mốc khác nhau chứng minh resume không phụ thuộc vào một offset cố định.
-
-Khi hiện:
-
-```text
-[DEMO] === Download Phase 1: download to 50%, then interrupt ===
-[DEMO] Server offset (before download): 0 bytes (0.0%)
-[DEMO] Receiving from 0.0% to 50.0%...
-[DEMO] Download killed at 10,485,760 bytes (50.0% of 20.0MB)
-
-[DEMO] === Download Phase 2: resume from 50% to 100% via client.py ===
-[DEMO] ✅ Download resume successful! SHA-256 verified by client.
-```
-
-nói:
-
-> Khi upload, client reconnect bằng cùng username và metadata; server xác nhận staging tương thích và trả đúng offset của từng lần ngắt. Khi download, client giữ file `.part` 10 MiB và yêu cầu tiếp tục từ offset 10.485.760 byte, thay vì tải lại từ đầu.
-
-Kết thúc phải quay rõ:
-
-```text
-100.0%
-[OK] SHA256 Verification OK
-[DEMO] ✅ Two-interrupt upload resume successful! SHA-256 verified by server.
-[DEMO] ✅ Download resume successful! SHA-256 verified by client.
-[DEMO] Server stopped.
-[DEMO] Test file cleaned up.
-```
-
-### Lời thoại kết thúc phần resume
-
-> Sau khi nhận đủ byte, server hash toàn bộ file upload, so sánh SHA-256 và chỉ atomic commit khi digest khớp. Client cũng xác minh SHA-256 của file download hoàn chỉnh. Các file tạm và server demo đều được cleanup.
-
-### Bàn giao
-
-> Resume upload và download đều đã khớp SHA-256. Bình sẽ trình bày artifact throttle và chính sách xử lý file đã tồn tại.
-
-## 4:35–5:05 — Bình: Bằng chứng throttle
-
-Mở file `docs/test-results/throttle.csv`.
-
-### Lời thoại gợi ý
-
-> Throttle được đo ba lần với file 2 MiB và giới hạn 500 KB/s. Ba tốc độ đo trên release là 472,42; 471,15 và 471,55 KB/s. Tất cả đều thấp hơn limit 500 KB/s và thấp hơn ngưỡng chấp nhận của đề là limit cộng 10%, tức 550 KB/s.
-
-Không cần chạy lại test throttle trong video nếu muốn tiết kiệm thời gian; CSV là artifact từ lần nghiệm thu release.
-
-## 5:05–5:35 — Bình: Chính sách file trùng
-
-### Terminal `SERVER`
-
-Khởi động lại server:
-
-```powershell
-python server.py 9000 "" 3
-```
-
-### Terminal `ALICE`
-
-```powershell
-python client.py 127.0.0.1 9000 --username video-alice "UPLOAD testdata/10mb.bin"
+python client.py 127.0.0.1 9000 --username alice "UPLOAD testdata/512b.bin"
 ```
 
 Kết quả mong đợi:
@@ -305,39 +88,27 @@ ERROR 112 / FILE_EXISTS
 file exists -- DELETE first
 ```
 
-### Lời thoại gợi ý
+> Alice upload lại đúng file đã có — server từ chối ngay bằng lỗi FILE_EXISTS thay vì âm thầm ghi đè. Muốn thay file, client phải DELETE trước rồi mới upload lại; cách này tránh việc một client khác đang đọc dở file thì bị thay nội dung giữa chừng.
 
-> File hoàn chỉnh đã tồn tại nên server từ chối bằng FILE_EXISTS và không ghi đè. Chính sách cập nhật là DELETE rõ ràng rồi mới UPLOAD lại, tránh để client khác đọc trúng file đang bị thay thế.
+### 4. Giới hạn số client — SERVER_BUSY (~55 giây)
 
-### Bàn giao
-
-> Cuối cùng, Hưng sẽ lấp đầy các slot kết nối để kiểm tra SERVER_BUSY, sau đó Cường xác nhận các session cũ vẫn hoạt động.
-
-## 5:35–6:20 — Hưng: SERVER_BUSY khi vượt capacity
-
-Mở ba session tương tác và giữ chúng không thoát.
-
-### Terminal `ALICE`
+**Terminal `CAROL`:**
 
 ```powershell
-python client.py 127.0.0.1 9000 --username cap-alice
+python client.py 127.0.0.1 9000 --username carol
 ```
 
-### Terminal `BOB`
+*(giữ phiên tương tác mở — đây là slot thứ 3/4)*
+
+**Terminal `DAVE`:**
 
 ```powershell
-python client.py 127.0.0.1 9000 --username cap-bob
+python client.py 127.0.0.1 9000 --username dave
 ```
 
-### Terminal `CAROL`
+*(giữ phiên tương tác mở — đây là slot thứ 4/4, server đã đầy)*
 
-```powershell
-python client.py 127.0.0.1 9000 --username cap-carol
-```
-
-Server đang dùng đủ 3/3 slot.
-
-### Terminal `CAPACITY`
+**Terminal `OVERFLOW`:**
 
 ```powershell
 python client.py 127.0.0.1 9000 --username overflow "LIST"
@@ -350,70 +121,194 @@ ERROR 120 / SERVER_BUSY
 server is full
 ```
 
-### Lời thoại gợi ý
+> Bốn slot đã bị Alice, Bob, Carol và Dave chiếm hết. Kết nối thứ năm này nhận lỗi SERVER_BUSY có cấu trúc rõ ràng, thay vì bị treo hoặc làm server sập.
 
-> Ba session đang chiếm đủ ba slot của server. Kết nối thứ tư nhận mã SERVER_BUSY có cấu trúc thay vì làm server crash hoặc chờ vô hạn.
-
-### Bàn giao
-
-> Server đã từ chối đúng kết nối vượt giới hạn. Cường sẽ kiểm tra một session cũ để chứng minh server vẫn hoạt động bình thường.
-
-## 6:20–6:35 — Cường: Xác nhận server vẫn hoạt động
-
-Quay lại terminal `ALICE`, trong interactive prompt gõ:
+**Quay lại terminal `ALICE`, gõ `LIST`:**
 
 ```text
 LIST
 ```
 
-### Lời thoại gợi ý
+> Và quan trọng nhất: các session cũ hoàn toàn không bị ảnh hưởng — Alice vẫn gọi LIST bình thường. Khi một session logout, slot đó được trả lại ngay cho client tiếp theo.
 
-> Các session cũ vẫn hoạt động; Alice vẫn gửi LIST bình thường. Khi một session logout, semaphore sẽ trả lại slot cho client mới.
+### Bàn giao (~10 giây)
 
-## 6:35–7:05 — Cường: Tổng kết
+> Server đã xử lý đúng cả bốn tình huống: namespace riêng, file trùng, và vượt giới hạn kết nối mà không crash. Tiếp theo, Bình sẽ trình bày cấu trúc giao thức nhị phân và kết quả stress test nhiều client đồng thời.
 
-### Hình ảnh
+*(Có thể dừng server bằng Ctrl+C ở đây nếu Bình tự quay khối riêng; nếu quay liền mạch, để nguyên — Khối 2 sẽ tự khởi động lại server theo cấu hình khác.)*
 
-Mở bảng kết quả trong `docs/architecture.md` hoặc thư mục `docs/test-results/`.
+### Cách rút gọn nếu thiếu thời gian
 
-### Lời thoại gợi ý
+Bỏ bước Carol/Dave giữ phiên tương tác thủ công (mỗi lệnh gõ tay mất thời gian) — thay bằng việc chỉ mở `docs/test-results/stress.json`/`.csv` ở phần sau và nói `SERVER_BUSY` đã được `tools/stress_clients.py` (Bình) xác nhận tự động qua 20 vòng. Giữ lại tối thiểu phần 2 (namespace) và phần 3 (FILE_EXISTS) vì đây là phần việc gắn trực tiếp với code của Cường.
 
-> Trên commit release, toàn bộ 69 test đều pass. Stress đạt 240 trên 240 client với 1.680 operations và không có failure. Hai lần upload resume ở 37% và 73%, cùng download resume ở 50%, đều tiếp tục đúng offset và có SHA-256 khớp. Throttle ba lần đều dưới giới hạn. Hệ thống đáp ứng concurrency, protocol framing, namespace, resume, progress, throttle và xử lý server đầy.
+---
 
-## 3. Dọn dẹp sau khi quay
+# KHỐI 2 — BÌNH (3:00–6:00): Giao thức nhị phân, stress test đồng thời
 
-Trong các client interactive, gõ:
+**Terminal cần mở:** `SERVER`, `STRESS`.
+
+### 1. Cấu trúc giao thức — mini-RFC (~60 giây)
+
+Mở `docs/protocol.md`, mục "Packet framing" và bảng opcode.
+
+> Toàn bộ giao tiếp giữa client và server đi qua một giao thức nhị phân tự định nghĩa trên TCP, mô tả đầy đủ trong file protocol.md. Mỗi gói tin có 4 phần: LENGTH 4 byte — độ dài phần còn lại của gói, không tính chính 4 byte này; OPCODE 2 byte xác định loại lệnh, ví dụ LOGIN, FILE_UPLOAD, FILE_DOWNLOAD, FILE_CHUNK, FILE_DELETE, ACK, ERROR; USER_ID 2 byte để server xác thực đúng người gửi; và cuối cùng là PAYLOAD có độ dài thay đổi tuỳ loại lệnh. Tất cả số nguyên đều dùng network byte order, tức big-endian. Vì TCP là luồng byte liên tục chứ không tự tách gói, phía nhận luôn phải đọc đủ số byte theo LENGTH khai báo trước khi xử lý — không được giả định một lần gửi tương ứng một lần nhận.
+
+> Payload dữ liệu file luôn ở dạng byte thô, không bao giờ decode qua chuỗi văn bản, để không bị lỗi khi file chứa byte 0x00. Các mã lỗi cũng được chuẩn hoá thành số, ví dụ FILE_EXISTS là 112, SERVER_BUSY là 120, giúp client xử lý logic thay vì so khớp chuỗi.
+
+*(Nếu còn thời gian, lướt nhanh qua bảng hex dump ví dụ trong file để người xem thấy gói tin thật trông như thế nào.)*
+
+### 2. Khởi động lại server cho stress test (~10 giây)
+
+**Terminal `SERVER`:**
+
+```powershell
+python server.py 9000
+```
+
+> Em khởi động lại server với cấu hình mặc định — tối đa 10 client cùng lúc, vì bài stress test sắp chạy sẽ mô phỏng 12 client, cố tình vượt quá capacity để kiểm tra luôn cả cơ chế SERVER_BUSY và retry.
+
+### 3. Chạy stress test 12 client × 20 vòng (~60 giây)
+
+**Terminal `STRESS`:**
+
+```powershell
+python tools/stress_clients.py --host 127.0.0.1 --port 9000 --clients 12 --rounds 20 --seed 2026
+```
+
+> Script này dùng seed cố định 2026 để kết quả có thể lặp lại giống hệt giữa các lần chạy. Mỗi vòng khởi tạo 12 client song song, mỗi client thực hiện đầy đủ chu trình: login, upload, list, download, kiểm tra lại SHA-256, delete rồi logout. Với 20 vòng, tổng cộng có 240 client và hàng nghìn thao tác được thực hiện.
+
+Chờ dòng kết quả in ra (khoảng 10–12 giây):
+
+```text
+[PASS] 240/240 clients; 1680 operations; 11.24s
+[INFO] JSON: docs/test-results/stress.json
+[INFO] CSV : docs/test-results/stress.csv
+```
+
+> 240 trên 240 client thành công, 1680 thao tác, không có thao tác nào lỗi, chạy trong khoảng 11 giây.
+
+### 4. Xem lại số liệu (~40 giây)
+
+Mở nhanh `docs/test-results/stress.json`, chỉ vào các trường:
+
+```text
+"clients": 12, "rounds": 20, "seed": 2026,
+"successful_clients": 240, "failed_clients": 0, "operations": 1680
+```
+
+> File JSON và CSV này được ghi lại tự động sau mỗi lần chạy, dùng làm bằng chứng nộp bài: cấu hình đúng 12 client, 20 vòng, seed 2026 để tái lập được, và không có client nào thất bại.
+
+### Bàn giao (~10 giây)
+
+> Hệ thống chịu tải tốt với nhiều client đồng thời. Tiếp theo, Hưng sẽ trình bày phần quan trọng nhất của đề bài: ngắt kết nối giữa chừng và resume đúng offset, kèm theo giới hạn băng thông truyền file.
+
+### Cách rút gọn nếu thiếu thời gian
+
+Nếu không muốn chờ stress test chạy trực tiếp trong video (~11 giây thực + thời gian server khởi động), có thể chỉ mở sẵn `docs/test-results/stress.json`/`.csv` từ lần chạy trước và nói kết quả, bỏ qua bước chạy lệnh trực tiếp — vẫn giữ nguyên phần giải thích giao thức ở mục 1 vì đó là nội dung bắt buộc của mini-RFC.
+
+---
+
+# KHỐI 3 — HƯNG (6:00–9:00): Resume upload/download, progress, throttle, tổng kết
+
+**Terminal cần mở:** `SERVER`, `RESUME`.
+
+### 1. Giới thiệu ngắn (~15 giây)
+
+> Phần của em tập trung vào yêu cầu quan trọng nhất của đề: khi kết nối bị ngắt giữa chừng, client phải reconnect và tiếp tục đúng từ vị trí đã dừng, rồi xác minh lại bằng SHA-256 — không truyền lại từ đầu và không làm hỏng file.
+
+### 2. Dừng server cũ, chạy demo resume (~90 giây)
+
+**Terminal `SERVER`:** nhấn `Ctrl+C` để dừng server đang chạy từ Khối 2 — script bên dưới tự khởi động server riêng của nó trên port 9000.
+
+**Terminal `RESUME`:**
+
+```powershell
+python tools/resume_demo.py
+```
+
+> Script tạo một file ngẫu nhiên 20 MiB, tính sẵn SHA-256 của toàn bộ file để đối chiếu ở cuối. Nó tự khởi động một server riêng, sau đó thực hiện lần lượt ba tình huống.
+
+Khi màn hình hiện:
+
+```text
+[DEMO] === Phase 1: upload to 37%, then interrupt ===
+[DEMO] Streaming from 0.0% to 37.0%...
+[DEMO] Connection killed at 7,761,920 bytes (37.0% of 20.0MB)
+
+[DEMO] === Phase 2: resume from 37%, upload to 73%, then interrupt ===
+[DEMO] Server offset (before): 7,761,920 bytes (37.0%)
+[DEMO] Streaming from 37.0% to 73.0%...
+[DEMO] Connection killed at 15,310,848 bytes (73.0% of 20.0MB)
+
+[DEMO] === Phase 3: resume from 73% to 100% via client.py ===
+[DEMO] ✅ Two-interrupt upload resume successful! SHA-256 verified by server.
+```
+
+> Upload bị ngắt cưỡng bức ở 37 phần trăm để mô phỏng mất mạng giữa chừng — socket bị đóng đột ngột, không phải logout sạch. Server không xoá phần đã nhận mà giữ lại trong file tạm `.part` cùng một file sidecar ghi lại kích thước và SHA-256 kỳ vọng. Khi client kết nối lại, server đọc sidecar, xác nhận đây đúng là phần tiếp theo của cùng file, và trả lại chính xác offset 7.761.920 byte để client tiếp tục từ đó — không phải từ 0. Việc này lặp lại lần hai ở mốc 73 phần trăm để chứng minh cơ chế không phụ thuộc vào một offset cố định. Sau khi nhận đủ toàn bộ file, server tính lại SHA-256 và chỉ commit file khi khớp hoàn toàn với hash ban đầu.
+
+Khi màn hình hiện:
+
+```text
+[DEMO] === Download Phase 1: download to 50%, then interrupt ===
+[DEMO] Receiving from 0.0% to 50.0%...
+[DEMO] Download killed at 10,485,760 bytes (50.0% of 20.0MB)
+
+[DEMO] === Download Phase 2: resume from 50% to 100% via client.py ===
+[DEMO] ✅ Download resume successful! SHA-256 verified by client.
+```
+
+> Tương tự ở chiều download: client giữ lại 10 MiB đã tải, và khi kết nối lại chỉ yêu cầu phần còn thiếu từ byte 10.485.760 trở đi. Sau khi ghép đủ file, client tự tính SHA-256 và so với hash server gửi kèm ACK ban đầu để xác nhận file toàn vẹn.
+
+### 3. Progress bar và throttle (~50 giây)
+
+Mở `docs/test-results/throttle.csv`.
+
+> Trong lúc truyền, client hiển thị progress bar theo thời gian thực, tính tốc độ và ETA dựa trên số byte mới truyền trong phiên hiện tại — nếu đang resume, phần đã có sẵn từ trước không bị tính vào tốc độ, tránh hiện tốc độ ảo cao gấp nhiều lần lúc chỉ còn truyền vài phần trăm cuối. Băng thông bị giới hạn bằng thuật toán token bucket: token bắt đầu bằng 0 thay vì đầy ngay từ đầu, để không có một đợt burst ban đầu làm tốc độ trung bình cả file vượt ngưỡng cho phép.
+
+```text
+Run,Size_MB,Time_s,Speed_KBps,Limit_KBps
+1,2.0,4.34,472.42,500
+2,2.0,4.35,471.15,500
+3,2.0,4.34,471.55,500
+```
+
+> Ba lần đo với giới hạn 500 KB/s cho tốc độ thực tế lần lượt là 472,42; 471,15 và 471,55 KB/s — đều thấp hơn giới hạn, và thấp hơn ngưỡng chấp nhận của đề là giới hạn cộng 10 phần trăm, tức 550 KB/s.
+
+*(Không bắt buộc chạy lại throttle test trực tiếp trong video để tiết kiệm thời gian — CSV này là artifact đã đo từ commit release. Nếu muốn chạy lại trực tiếp: `python -m unittest discover -s tests -t tests -p test_throttle.py -v`, mất khoảng 13 giây.)*
+
+### 4. Tổng kết toàn bộ video (~25 giây)
+
+> Tổng kết lại: hệ thống hiện có 70 test đơn vị và tích hợp, toàn bộ đều pass. Stress test đạt 240 trên 240 client thành công với 1680 thao tác, không có lỗi nào. Resume upload đã kiểm chứng ở hai mốc ngắt 37 và 73 phần trăm, resume download ở mốc 50 phần trăm, cả hai đều tiếp tục đúng offset và khớp SHA-256 sau khi hoàn tất. Throttle giữ tốc độ dưới giới hạn cho phép qua ba lần đo liên tiếp. Cảm ơn thầy cô và các bạn đã theo dõi.
+
+### Cách rút gọn nếu thiếu thời gian
+
+Đây là phần bắt buộc của đề (resume + SHA-256), không nên cắt. Nếu cần rút bớt, bỏ phần chạy lại throttle test trực tiếp (mục 3 đã có sẵn lựa chọn chỉ xem CSV) và rút gọn câu tổng kết ở mục 4 xuống 2–3 câu.
+
+---
+
+## Dọn dẹp sau khi quay
+
+Trong các client đang ở chế độ tương tác (Carol, Dave ở Khối 1), gõ:
 
 ```text
 exit
 ```
 
-Trong terminal server, nhấn:
+Trong terminal server đang chạy, nhấn `Ctrl+C`.
 
-```text
-Ctrl+C
-```
+## Checklist trước khi xuất video
 
-Không cần quay phần dọn dẹp nếu video đã đủ thời lượng.
+- [ ] Tổng thời lượng khoảng 8–10 phút, chia rõ 3 khối liên tục theo người, không xen kẽ giữa chừng.
+- [ ] Khối Cường: có LOGIN/UPLOAD/LIST thành công, namespace riêng giữa Alice và Bob, `FILE_EXISTS`, `SERVER_BUSY`, và cảnh chứng minh session cũ vẫn sống sau khi server đầy.
+- [ ] Khối Bình: có giải thích packet header/opcode, và kết quả stress `240/240` (chạy trực tiếp hoặc mở JSON/CSV có sẵn).
+- [ ] Khối Hưng: có cảnh ngắt upload ở 37% và 73%, ngắt download ở 50%, mỗi lần resume đúng offset và có dòng `SHA-256 verified`. Có throttle CSV ba lần đo. Có câu tổng kết ở cuối.
+- [ ] Không lộ token, mật khẩu, đường dẫn cá nhân hay cửa sổ chat riêng tư.
+- [ ] Âm thanh rõ, font terminal đủ lớn để đọc được output/error line.
+- [ ] Ghi rõ commit hash đang quay trong mô tả video, để đối chiếu khi cần.
 
-## 4. Checklist trước khi xuất video
+## Phương án dự phòng khi quay
 
-- [ ] Video dài từ 5 đến 8 phút.
-- [ ] Có cảnh ba progress bar truyền đồng thời, không chỉ ba client đứng idle.
-- [ ] Có ít nhất một UPLOAD, LIST và DOWNLOAD thành công.
-- [ ] Có cảnh ngắt upload ở 37% và 73%, mỗi lần reconnect đúng offset.
-- [ ] Có cảnh ngắt download ở 50%, resume từ offset 10.485.760 byte.
-- [ ] Có cảnh SHA-256 OK sau từng lần upload/download resume.
-- [ ] Có cảnh stress `240/240`, hoặc ít nhất artifact JSON/CSV rõ ràng.
-- [ ] Có cảnh throttle CSV với ba lần đo.
-- [ ] Có cảnh `FILE_EXISTS` và `SERVER_BUSY` nếu đủ thời gian.
-- [ ] Không lộ token, mật khẩu, đường dẫn riêng tư không cần thiết hoặc cửa sổ chat cá nhân.
-- [ ] Âm thanh rõ, terminal font đủ lớn, không cắt mất error/result line.
-
-## 5. Phương án dự phòng khi quay
-
-- Nếu ba upload kết thúc quá nhanh, luôn dùng `--limit 500` và file `10mb.bin`.
-- Nếu `FILE_EXISTS` xuất hiện ngay ở lần upload đầu, đang dùng storage cũ; chuyển sang checkout sạch hoặc dùng username/filename mới.
-- Nếu resume demo báo port đang bận, dừng server cũ và kiểm tra lại port 9000.
-- Nếu demo live lỗi, giữ sẵn ảnh/chụp màn hình `stress.json`, `stress.csv`, `throttle.csv` và log của lần nghiệm thu release.
-- Quay trên đúng commit release và ghi commit hash trong phần mô tả video.
+- Nếu ba upload/stress kết thúc quá nhanh để quay kịp, dùng `--limit 500` với file `10mb.bin` thay vì file nhỏ.
+- Nếu `FILE_EXISTS` không xuất hiện đúng lúc mong đợi, đang dùng lại `storage/` cũ còn sót dữ liệu — xoá `storage/`, `logs/`, `downloads/` rồi chạy lại từ đầu khối.
+- Nếu server báo port 9000 đang bận, dừng hẳn tiến trình server cũ (kể cả server con mà `tools/resume_demo.py` tự khởi động) trước khi chạy lệnh tiếp theo.
+- Nếu demo trực tiếp gặp lỗi không mong muốn giữa buổi quay, giữ sẵn ảnh chụp màn hình `stress.json`, `stress.csv`, `throttle.csv` và log của lần chạy nghiệm thu gần nhất để dùng thay thế.
