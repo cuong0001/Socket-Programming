@@ -95,9 +95,36 @@ python testdata/make_testdata.py
 
 ## Shot C1 — Mở đầu + giới thiệu kiến trúc *(0:00–0:35, ~35 giây)*
 
-**Trạng thái cần có:** không cần gì. Quay lúc nào cũng được.
+**Trạng thái cần có:** không cần server, không cần dữ liệu. Quay lúc nào cũng được.
 
-**Trên màn hình:** mở `docs/architecture.md` và `docs/protocol.md`. Vừa nói vừa cuộn chậm tới sơ đồ packet header và bảng opcode. **Không đọc tài liệu** — chỉ trỏ vào đúng chỗ đang nhắc tới.
+### Chuẩn bị màn hình (làm trước, chưa quay)
+
+Đây là shot duy nhất không có terminal, nên phải chuẩn bị kỹ hơn — nếu vừa quay vừa mò tìm mục thì video sẽ rất lộ.
+
+1. Mở VS Code, **chỉ mở đúng 2 file**: `docs/protocol.md` và `docs/architecture.md`. Đóng hết tab khác để thanh tab không rối.
+2. Với **từng file**, bật chế độ xem đã render: `Ctrl+Shift+V`. Bản render có khung nền cho sơ đồ và bảng có kẻ ô, nhìn chuyên nghiệp hơn hẳn markdown thô đầy dấu `#` và `|`.
+3. Ẩn thanh bên trái: `Ctrl+B` — lấy thêm chỗ cho nội dung.
+4. Phóng to chữ: `Ctrl+=` khoảng 3–4 lần. **Quay thử 10 giây rồi mở lại trên điện thoại xem** — nếu đọc không nổi thì phóng thêm. Chữ nhỏ là lỗi hay gặp nhất khi quay màn hình.
+5. Cuộn sẵn từng tab tới đúng vị trí (xem bảng bên dưới), rồi **không chạm vào nữa** cho tới lúc quay.
+6. Chuyển tab bằng `Ctrl+Tab`, đừng dùng chuột bấm lên thanh tab — đỡ rung hình.
+
+> 💡 Nếu nhánh `docs/protocol-vi` đã merge thì `protocol.md` đã là tiếng Việt. Nên merge **trước khi quay**, để video tiếng Việt không chiếu tài liệu tiếng Anh.
+
+### Storyboard — chỉ vào đâu, lúc nào
+
+| Đoạn | Đang nói câu nào | Màn hình | Thao tác chuột |
+|---|---|---|---|
+| **1** (~10 giây) | Từ *"Xin chào thầy cô…"* đến *"…giao thức nhị phân do nhóm tự định nghĩa."* | `protocol.md` — để ở **đầu file**, thấy tiêu đề *"Giao thức truyền file Giai đoạn 2 (Mini-RFC)"* | **Không chỉ gì cả.** Đây là đoạn chào, để yên màn hình. |
+| **2** (~15 giây) | Từ *"Mỗi gói tin gồm bốn phần…"* đến *"…network byte order."* | `protocol.md` — mục **"2. Khung gói tin (framing)"**, hiện rõ sơ đồ ASCII | Bôi đen **lần lượt 4 ô** trong sơ đồ, đúng theo thứ tự đang đọc: `LENGTH:u32` → `OPCODE:u16` → `USER_ID:u16` → `PAYLOAD` |
+| **3** (~10 giây) | Từ *"Về phía server…"* đến hết | `Ctrl+Tab` sang `architecture.md` — chỉnh zoom sao cho **thấy đồng thời cả 3 tiêu đề** mục 1, 2, 3 | Bôi đen lần lượt 3 tiêu đề: *"1. Kiến trúc thread-per-client"* → *"2. Namespace và an toàn đường dẫn"* → *"3. FileLockRegistry"* |
+
+### Ba mẹo quan trọng
+
+**Bôi đen chứ đừng rê chuột.** Con trỏ chuột trong video rất nhỏ, người xem gần như không thấy nó ở đâu. Kéo chuột bôi đen tạo một vùng sáng rõ ràng, nhìn là biết ngay đang nói tới chỗ nào. Bôi xong đoạn nào thì bấm chuột ra chỗ trống để bỏ chọn rồi bôi đoạn tiếp theo.
+
+**Đoạn 3 hạn chế cuộn.** Ba mục 1, 2, 3 của `architecture.md` nằm gần nhau (cách nhau chưa tới 20 dòng nguồn), nên thường chỉ cần hạ zoom một nấc là cả ba tiêu đề cùng nằm trên một màn hình — khi đó chỉ việc bôi đen lần lượt, không cần chạm bánh xe chuột. Nếu ở mức zoom đọc được mà vẫn không đủ chỗ, thì **cuộn đúng một lần, thật chậm và đều** từ mục 1 xuống mục 3 trong lúc nói, chứ đừng nhảy giật ba lần — người xem sẽ không kịp đọc gì.
+
+**Câu "network byte order" không cần chỉ vào đâu.** Nó nằm ở mục 1 của `protocol.md`, cuộn ngược lên rồi cuộn xuống lại chỉ tổ rối hình. Cứ nói bình thường trong lúc màn hình vẫn đang ở sơ đồ.
 
 🎙️ **Lời thoại:**
 
