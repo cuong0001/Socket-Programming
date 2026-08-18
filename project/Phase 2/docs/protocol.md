@@ -1,31 +1,32 @@
-# Phase 2 File Transfer Protocol (Mini-RFC)
+# Giao thức truyền file Giai đoạn 2 (Mini-RFC)
 
-Status: implemented by `protocol.py`, `client.py`, `server.py`, and
+Trạng thái: đã được hiện thực bởi `protocol.py`, `client.py`, `server.py` và
 `session.py`.
 
-## 1. Scope and conventions
+## 1. Phạm vi và quy ước
 
-This protocol runs over TCP and provides login, per-user file namespaces,
-binary upload/download, offset-based resume, checksums, deletion, and
-structured errors. TCP is a byte stream, so every application packet uses a
-length prefix. Receivers must call `recv_exact`/`read_packet`; they must not
-assume that one `send` corresponds to one `recv`.
+Giao thức này chạy trên nền TCP, cung cấp các chức năng: đăng nhập, namespace
+file riêng theo từng user, upload/download nhị phân, resume dựa trên offset,
+kiểm tra checksum, xóa file, và trả lỗi có cấu trúc. TCP là một luồng byte
+liên tục, nên mọi gói tin ở tầng ứng dụng đều mang một tiền tố độ dài. Phía
+nhận bắt buộc phải dùng `recv_exact`/`read_packet`; không được giả định rằng
+một lần `send` sẽ tương ứng với đúng một lần `recv`.
 
-All integer fields are unsigned and use network byte order (big-endian).
-Sizes and offsets count bytes. SHA-256 values are the raw 32 digest bytes,
-not hexadecimal text. Binary file data is never decoded as text and may
-contain `0x00`.
+Toàn bộ các trường số nguyên đều không dấu và dùng thứ tự byte mạng
+(big-endian). Kích thước và offset được tính theo byte. Giá trị SHA-256 là 32
+byte digest **thô**, không phải chuỗi hex dạng văn bản. Dữ liệu file nhị phân
+không bao giờ được decode thành văn bản và có thể chứa byte `0x00`.
 
-Notation:
+Ký hiệu:
 
-- `u16`, `u32`, `u64`: unsigned 2-, 4-, and 8-byte integers.
-- `text`: `byte_length:u16 + UTF-8 bytes`.
-- `sha256`: exactly 32 raw bytes when present.
-- `data`: arbitrary binary bytes.
+- `u16`, `u32`, `u64`: số nguyên không dấu 2, 4 và 8 byte.
+- `text`: `byte_length:u16 + chuỗi byte UTF-8`.
+- `sha256`: đúng 32 byte thô khi có mặt.
+- `data`: chuỗi byte nhị phân bất kỳ.
 
-## 2. Packet framing
+## 2. Khung gói tin (framing)
 
-Every packet has this layout:
+Mọi gói tin đều có bố cục sau:
 
 ```text
   0                   1                   2                   3
@@ -35,162 +36,164 @@ Every packet has this layout:
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  |          OPCODE:u16           |          USER_ID:u16          |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- |                     PAYLOAD (variable) ...                    |
+ |                     PAYLOAD (độ dài thay đổi) ...             |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-`LENGTH` counts all bytes after the four-byte length field:
+`LENGTH` đếm toàn bộ số byte đứng **sau** trường length 4 byte:
 
 ```text
-LENGTH = 2 (opcode) + 2 (user_id) + payload length
+LENGTH = 2 (opcode) + 2 (user_id) + độ dài payload
 ```
 
-Therefore, an empty-payload packet has `LENGTH=4` and occupies eight bytes on
-the wire. The implementation rejects a body larger than 1 MiB. Individual
-file chunks are 4096 bytes in the current client and server.
+Do đó, một gói tin có payload rỗng sẽ mang `LENGTH=4` và chiếm 8 byte trên
+đường truyền. Phần hiện thực từ chối mọi phần thân lớn hơn 1 MiB. Mỗi khối dữ
+liệu file trong client và server hiện tại có kích thước 4096 byte.
 
-Before login, the client sends `USER_ID=0`. A successful LOGIN response
-assigns a non-zero ID. Every later client packet must carry that ID; a
-mismatch receives `USER_ID_MISMATCH`.
+Trước khi đăng nhập, client gửi `USER_ID=0`. Một phản hồi LOGIN thành công sẽ
+cấp cho client một ID khác 0. Mọi gói tin client gửi sau đó đều phải mang đúng
+ID này; nếu không khớp sẽ nhận lỗi `USER_ID_MISMATCH`.
 
-## 3. Opcode table
+## 3. Bảng opcode
 
-| Name | Hex | Direction | Payload |
+| Tên | Hex | Chiều | Payload |
 |---|---:|---|---|
 | `LOGIN` | `0x01` | C -> S | `username:text` |
-| `LOGOUT` | `0x02` | C -> S | empty |
-| `FILE_LIST` | `0x10` | C -> S | empty |
-| `FILE_LIST_RESP` | `0x11` | S -> C | `count:u32 + entries` |
-| `FILE_UPLOAD` | `0x12` | C -> S | upload metadata |
-| `FILE_DOWNLOAD` | `0x13` | C -> S | download metadata |
+| `LOGOUT` | `0x02` | C -> S | rỗng |
+| `FILE_LIST` | `0x10` | C -> S | rỗng |
+| `FILE_LIST_RESP` | `0x11` | S -> C | `count:u32 + danh sách entry` |
+| `FILE_UPLOAD` | `0x12` | C -> S | metadata upload |
+| `FILE_DOWNLOAD` | `0x13` | C -> S | metadata download |
 | `FILE_CHUNK` | `0x14` | C <-> S | `offset:u64 + data` |
 | `FILE_DELETE` | `0x15` | C -> S | `filename:text` |
-| `ACK` | `0x20` | S -> C | acknowledgement |
-| `ERROR` | `0xFF` | S -> C | structured error |
+| `ACK` | `0x20` | S -> C | gói xác nhận |
+| `ERROR` | `0xFF` | S -> C | lỗi có cấu trúc |
 
-Unknown opcodes receive `UNKNOWN_OPCODE` when the current session state can
-safely continue.
+Các opcode không xác định sẽ nhận lỗi `UNKNOWN_OPCODE` trong trường hợp trạng
+thái phiên hiện tại vẫn có thể tiếp tục an toàn.
 
-## 4. Payload formats
+## 4. Định dạng payload
 
-### 4.1 LOGIN and filenames
+### 4.1 LOGIN và tên file
 
-`LOGIN` uses one length-prefixed UTF-8 username:
+`LOGIN` dùng một chuỗi username UTF-8 có tiền tố độ dài:
 
 ```text
-name_length:u16 + username:name_length bytes
+name_length:u16 + username:name_length byte
 ```
 
-`FILE_DELETE` uses the same representation for a filename. Empty names,
-invalid UTF-8, path separators, `..`, drive separators, trailing dots/spaces,
-and Windows device names are rejected by the server.
+`FILE_DELETE` dùng đúng cách biểu diễn này cho tên file. Server từ chối các
+trường hợp: tên rỗng, UTF-8 không hợp lệ, ký tự phân tách đường dẫn, `..`, ký
+tự phân tách ổ đĩa, dấu chấm/khoảng trắng ở cuối tên, và tên thiết bị của
+Windows.
 
 ### 4.2 FILE_LIST_RESP
 
 ```text
 count:u32
-repeat count times:
+lặp lại count lần:
     name_length:u16
-    filename:name_length bytes
+    filename:name_length byte
     size:u64
 ```
 
-The response contains only completed files in the authenticated user's
-storage directory. Staging sidecars and partial/quarantined files are hidden.
+Phản hồi chỉ chứa các file **đã hoàn chỉnh** trong thư mục lưu trữ của user
+đang đăng nhập. Các file sidecar staging, file dở dang và file bị cách ly đều
+được ẩn đi.
 
 ### 4.3 FILE_UPLOAD
 
 ```text
 name_length:u16
-filename:name_length bytes
+filename:name_length byte
 total_size:u64
 proposed_offset:u64
-sha256:32 bytes (optional for legacy packets; required by the Phase 2 client)
+sha256:32 byte (tùy chọn với gói tin đời cũ; bắt buộc với client Giai đoạn 2)
 ```
 
-The current client proposes offset zero and sends the full-file SHA-256.
-The server decides the real resume point from its compatible `.part` file and
-sidecar, then returns that position in an ACK. `proposed_offset` and the
-server-selected offset must not exceed `total_size`.
+Client hiện tại luôn đề xuất offset bằng 0 và gửi kèm SHA-256 của toàn bộ
+file. Server mới là bên quyết định điểm resume thực tế, dựa trên file `.part`
+tương thích và file sidecar của nó, rồi trả vị trí đó về trong một gói ACK.
+Cả `proposed_offset` lẫn offset do server chọn đều không được vượt quá
+`total_size`.
 
 ### 4.4 FILE_DOWNLOAD
 
 ```text
 name_length:u16
-filename:name_length bytes
+filename:name_length byte
 requested_offset:u64
 ```
 
-The offset is the size of the client's validated local `.part` file. The
-server rejects an offset beyond the completed file size.
+Offset ở đây chính là kích thước file `.part` cục bộ đã được client xác thực.
+Server từ chối nếu offset vượt quá kích thước của file hoàn chỉnh.
 
 ### 4.5 FILE_CHUNK
 
 ```text
 offset:u64
-data:remaining payload bytes
+data:phần byte payload còn lại
 ```
 
-Chunks must arrive at the exact next expected offset. For upload, a chunk may
-not extend beyond the `total_size` declared by FILE_UPLOAD. The receiver
-writes and hashes `data` as raw bytes.
+Các khối dữ liệu phải đến đúng vị trí offset kế tiếp mà phía nhận đang chờ.
+Với chiều upload, một khối không được phép vượt quá `total_size` mà gói
+FILE_UPLOAD đã khai báo. Phía nhận ghi và băm `data` ở dạng byte thô.
 
 ### 4.6 ACK
 
 ```text
 acked_opcode:u16
 next_offset:u64
-sha256:32 bytes (optional)
+sha256:32 byte (tùy chọn)
 ```
 
-The receiver must verify that `acked_opcode` matches the operation it is
-waiting for. Uses of `next_offset` are operation-specific:
+Phía nhận bắt buộc phải kiểm tra `acked_opcode` có khớp với thao tác mình đang
+chờ hay không. Ý nghĩa của `next_offset` thay đổi tùy theo từng thao tác:
 
-| Acknowledged operation | `next_offset` meaning | SHA-256 |
+| Thao tác được xác nhận | Ý nghĩa của `next_offset` | SHA-256 |
 |---|---|---|
-| `LOGIN` | assigned user ID | absent |
-| initial `FILE_UPLOAD` | server resume position | absent |
-| final `FILE_UPLOAD` | completed total size | server digest |
-| `FILE_DOWNLOAD` | total file size | server digest |
-| `FILE_DELETE` | zero | absent |
-| `LOGOUT` | zero | absent |
+| `LOGIN` | user ID được cấp | không có |
+| `FILE_UPLOAD` (gói đầu) | vị trí resume phía server | không có |
+| `FILE_UPLOAD` (gói cuối) | tổng kích thước đã hoàn tất | digest của server |
+| `FILE_DOWNLOAD` | tổng kích thước file | digest của server |
+| `FILE_DELETE` | bằng 0 | không có |
+| `LOGOUT` | bằng 0 | không có |
 
 ### 4.7 ERROR
 
 ```text
 error_code:u16
 message_length:u16
-message:message_length UTF-8 bytes
+message:message_length byte UTF-8
 ```
 
-The byte length, not the Unicode character count, is stored in
-`message_length`.
+Trường `message_length` lưu **số byte**, không phải số ký tự Unicode.
 
-## 5. Error codes
+## 5. Bảng mã lỗi
 
-| Decimal | Hex | Name | Meaning |
+| Thập phân | Hex | Tên | Ý nghĩa |
 |---:|---:|---|---|
-| 100 | `0x0064` | `MALFORMED` | Packet or payload cannot be parsed |
-| 101 | `0x0065` | `UNKNOWN_OPCODE` | Opcode is not implemented |
-| 102 | `0x0066` | `INVALID_USERNAME` | Username is invalid or unsafe |
-| 103 | `0x0067` | `NOT_LOGGED_IN` | LOGIN is required first |
-| 104 | `0x0068` | `USER_ID_MISMATCH` | Packet ID differs from the session ID |
-| 105 | `0x0069` | `USERNAME_IN_USE` | Username already has an active session |
-| 110 | `0x006E` | `INVALID_FILENAME` | Filename is invalid or unsafe |
-| 111 | `0x006F` | `NOT_FOUND` | Completed file does not exist |
-| 112 | `0x0070` | `FILE_EXISTS` | Upload target already exists |
-| 113 | `0x0071` | `OFFSET_MISMATCH` | Chunk/resume offset is invalid |
-| 114 | `0x0072` | `CHECKSUM_MISMATCH` | Final SHA-256 does not match |
-| 115 | `0x0073` | `RESUME_CONFLICT` | Resume metadata is incompatible |
-| 120 | `0x0078` | `SERVER_BUSY` | Maximum active-client capacity reached |
-| 121 | `0x0079` | `FILE_BUSY` | File lock could not be acquired |
-| 130 | `0x0082` | `INTERNAL_ERROR` | Logged internal server failure |
+| 100 | `0x0064` | `MALFORMED` | Không phân tích được gói tin hoặc payload |
+| 101 | `0x0065` | `UNKNOWN_OPCODE` | Opcode chưa được hiện thực |
+| 102 | `0x0066` | `INVALID_USERNAME` | Username không hợp lệ hoặc không an toàn |
+| 103 | `0x0067` | `NOT_LOGGED_IN` | Phải LOGIN trước |
+| 104 | `0x0068` | `USER_ID_MISMATCH` | ID trong gói tin khác với ID của phiên |
+| 105 | `0x0069` | `USERNAME_IN_USE` | Username đã có một phiên đang hoạt động |
+| 110 | `0x006E` | `INVALID_FILENAME` | Tên file không hợp lệ hoặc không an toàn |
+| 111 | `0x006F` | `NOT_FOUND` | File hoàn chỉnh không tồn tại |
+| 112 | `0x0070` | `FILE_EXISTS` | File đích của upload đã tồn tại |
+| 113 | `0x0071` | `OFFSET_MISMATCH` | Offset của khối dữ liệu hoặc của resume không hợp lệ |
+| 114 | `0x0072` | `CHECKSUM_MISMATCH` | SHA-256 cuối cùng không khớp |
+| 115 | `0x0073` | `RESUME_CONFLICT` | Metadata resume không tương thích |
+| 120 | `0x0078` | `SERVER_BUSY` | Đã đạt giới hạn số client hoạt động tối đa |
+| 121 | `0x0079` | `FILE_BUSY` | Không lấy được khóa file |
+| 130 | `0x0082` | `INTERNAL_ERROR` | Lỗi nội bộ của server, đã được ghi log |
 
-Most semantic errors leave the connection usable. A truncated frame or lost
-TCP connection cannot be recovered because packet alignment is no longer
-known; the peer reconnects instead.
+Phần lớn các lỗi ngữ nghĩa vẫn để kết nối tiếp tục dùng được. Riêng trường hợp
+frame bị cắt cụt hoặc mất kết nối TCP thì không thể khôi phục, vì lúc đó không
+còn xác định được ranh giới gói tin nữa; phía đối tác sẽ kết nối lại từ đầu.
 
-## 6. Session state machine
+## 6. Máy trạng thái phiên
 
 ```text
 CONNECTED --LOGIN--> AUTHENTICATED
@@ -201,23 +204,24 @@ AUTHENTICATED --FILE_LIST / FILE_DELETE--> AUTHENTICATED
 AUTHENTICATED --LOGOUT--> CLOSED
 ```
 
-Only LOGIN is accepted before authentication. In `AUTHENTICATED`, the server
-accepts LIST, UPLOAD, DOWNLOAD, DELETE, and LOGOUT. During an upload, only the
-expected FILE_CHUNK stream (or LOGOUT) is valid. The server drives downloads;
-the client receives until the byte count from the opening ACK is reached.
+Trước khi xác thực, server chỉ chấp nhận duy nhất LOGIN. Ở trạng thái
+`AUTHENTICATED`, server chấp nhận LIST, UPLOAD, DOWNLOAD, DELETE và LOGOUT.
+Trong lúc đang upload, chỉ luồng FILE_CHUNK đúng như dự kiến (hoặc LOGOUT) mới
+hợp lệ. Với download thì server là bên chủ động đẩy dữ liệu; client nhận cho
+tới khi đủ số byte mà gói ACK mở đầu đã thông báo.
 
-## 7. Operation sequences
+## 7. Trình tự các thao tác
 
-### 7.1 Login
+### 7.1 Đăng nhập
 
 ```text
 C -> S  LOGIN(user_id=0, username)
-S -> C  ACK(acked_opcode=LOGIN, next_offset=assigned_user_id)
+S -> C  ACK(acked_opcode=LOGIN, next_offset=user_id_được_cấp)
 ```
 
-The client uses the assigned ID in all later packets.
+Client dùng ID được cấp này cho toàn bộ các gói tin về sau.
 
-### 7.2 Upload and upload resume
+### 7.2 Upload và resume upload
 
 ```text
 C -> S  FILE_UPLOAD(filename, total_size, offset=0, full_sha256)
@@ -226,17 +230,18 @@ C -> S  FILE_CHUNK(server_offset, data) x N
 S -> C  ACK(FILE_UPLOAD, total_size, actual_sha256)
 ```
 
-If the connection drops, the server keeps `.part` plus `.part.json`. On the
-next FILE_UPLOAD for the same username/filename, it validates `total_size`
-and SHA-256 against the sidecar. A compatible staging file resumes from its
-current byte size; incompatible staging is cleared rather than mixed with a
-different source file. The completed file is promoted atomically only after
-the full digest matches.
+Nếu kết nối bị đứt, server giữ lại file `.part` cùng file `.part.json`. Ở lần
+FILE_UPLOAD kế tiếp cho cùng cặp username/filename, server đối chiếu
+`total_size` và SHA-256 với nội dung sidecar. Nếu file staging tương thích,
+quá trình truyền tiếp tục từ đúng kích thước byte hiện tại của nó; nếu không
+tương thích, staging sẽ bị xóa bỏ thay vì trộn lẫn với dữ liệu của một file
+nguồn khác. File hoàn chỉnh chỉ được chuyển sang trạng thái chính thức một
+cách nguyên tử **sau khi** digest toàn file khớp.
 
-An already completed filename returns `FILE_EXISTS`; the explicit update
-policy is DELETE followed by a new UPLOAD.
+Nếu tên file đó đã hoàn chỉnh từ trước, server trả về `FILE_EXISTS`; chính
+sách cập nhật tường minh là DELETE trước rồi mới UPLOAD lại.
 
-### 7.3 Download and download resume
+### 7.3 Download và resume download
 
 ```text
 C -> S  FILE_DOWNLOAD(filename, local_part_size)
@@ -244,13 +249,12 @@ S -> C  ACK(FILE_DOWNLOAD, total_size, full_sha256)
 S -> C  FILE_CHUNK(local_part_size, data) x N
 ```
 
-There is no trailing download ACK. The client already knows `total_size` and
-the expected digest from the opening ACK. After receiving exactly that many
-bytes, it hashes the whole `.part` file and atomically renames it only when
-the digest matches. A sidecar mismatch clears local staging and requires a
-new request.
+Chiều download **không có** gói ACK kết thúc. Client đã biết sẵn `total_size`
+và digest kỳ vọng ngay từ gói ACK mở đầu. Sau khi nhận đúng số byte đó, client
+băm toàn bộ file `.part` và chỉ đổi tên nó một cách nguyên tử khi digest khớp.
+Nếu sidecar không khớp, client xóa staging cục bộ và phải gửi yêu cầu mới.
 
-### 7.4 Delete and logout
+### 7.4 Xóa file và đăng xuất
 
 ```text
 C -> S  FILE_DELETE(filename)
@@ -260,16 +264,17 @@ C -> S  LOGOUT
 S -> C  ACK(LOGOUT, 0)
 ```
 
-## 8. Golden upload packet
+## 8. Gói tin upload mẫu chuẩn (golden vector)
 
-This is the golden vector enforced by `tests/test_protocol.py` for:
+Đây là vector chuẩn được `tests/test_protocol.py` kiểm tra đối chiếu từng
+byte, với các tham số:
 
 - opcode `FILE_UPLOAD` (`0x0012`)
 - user ID `7`
-- filename `data.bin`
-- total size `10,000,000` (`0x0000000000989680`)
-- proposed offset `0`
-- SHA-256 bytes `0x11` repeated 32 times
+- tên file `data.bin`
+- tổng kích thước `10.000.000` (`0x0000000000989680`)
+- offset đề xuất `0`
+- 32 byte SHA-256, mỗi byte đều là `0x11`
 
 ```text
 00 00 00 3E  00 12  00 07
@@ -282,13 +287,13 @@ This is the golden vector enforced by `tests/test_protocol.py` for:
 11 11 11 11 11 11 11 11
 ```
 
-The body contains 62 bytes (`0x3E`): four bytes for opcode/user ID, 10 bytes
-for the encoded filename, 16 bytes for size/offset, and 32 digest bytes. The
-complete packet occupies 66 bytes including the four-byte length prefix.
+Phần thân gói tin gồm 62 byte (`0x3E`): 4 byte cho opcode và user ID, 10 byte
+cho tên file đã mã hóa, 16 byte cho kích thước và offset, cùng 32 byte digest.
+Gói tin hoàn chỉnh chiếm 66 byte nếu tính cả tiền tố độ dài 4 byte.
 
-## 9. Verification commands
+## 9. Các lệnh kiểm chứng
 
-From `project/Phase 2`:
+Chạy từ thư mục `project/Phase 2`:
 
 ```powershell
 python -m unittest tests.test_protocol -v
@@ -296,11 +301,12 @@ python -m unittest discover -s tests -t tests -p test_framing.py -v
 python -m unittest discover -s tests -t tests -p test_stress_clients.py -v
 ```
 
-With a server already listening on port 9000:
+Khi đã có một server đang lắng nghe ở port 9000:
 
 ```powershell
 python tools/stress_clients.py --host 127.0.0.1 --port 9000 --clients 12 --rounds 20 --seed 2026
 ```
 
-The stress command writes `docs/test-results/stress.json` and
-`docs/test-results/stress.csv` and exits non-zero if any logical client fails.
+Lệnh stress sẽ ghi ra `docs/test-results/stress.json` và
+`docs/test-results/stress.csv`, đồng thời thoát với mã khác 0 nếu có bất kỳ
+logical client nào thất bại.
