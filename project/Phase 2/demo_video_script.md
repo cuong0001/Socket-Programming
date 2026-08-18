@@ -114,9 +114,14 @@ python testdata/make_testdata.py
 
 | Đoạn | Đang nói câu nào | Màn hình | Thao tác chuột |
 |---|---|---|---|
-| **1** (~10 giây) | Từ *"Xin chào thầy cô…"* đến *"…giao thức nhị phân do nhóm tự định nghĩa."* | `protocol.md` — để ở **đầu file**, thấy tiêu đề *"Giao thức truyền file Giai đoạn 2 (Mini-RFC)"* | **Không chỉ gì cả.** Đây là đoạn chào, để yên màn hình. |
+| **1** (~10 giây) | Từ *"Xin chào thầy cô…"* đến *"…đóng gói theo cấu trúc Length–Opcode–Payload."* | `protocol.md` — để ở **đầu file**, thấy tiêu đề *"Giao thức truyền file Giai đoạn 2 (Mini-RFC)"* | **Không chỉ gì cả.** Đây là đoạn chào, để yên màn hình. |
 | **2** (~15 giây) | Từ *"Mỗi gói tin gồm bốn phần…"* đến *"…network byte order."* | `protocol.md` — mục **"2. Khung gói tin (framing)"**, hiện rõ sơ đồ ASCII | Bôi đen **lần lượt 4 ô** trong sơ đồ, đúng theo thứ tự đang đọc: `LENGTH:u32` → `OPCODE:u16` → `USER_ID:u16` → `PAYLOAD` |
+| **2b** (~20 giây) *— chỉ khi dùng câu bổ sung tùy chọn* | Từ *"Nhóm em chọn dạng nhị phân…"* đến *"…nên không gặp vấn đề này."* | **Giữ nguyên màn hình của đoạn 2**, không chuyển tab, không cuộn | Khi nói *"tiền tố độ dài"* thì bôi đen lại ô `LENGTH:u32`; nếu muốn thì cuộn nhẹ xuống dòng công thức `LENGTH = 2 (opcode) + 2 (user_id) + độ dài payload` ngay dưới sơ đồ |
 | **3** (~10 giây) | Từ *"Về phía server…"* đến hết | `Ctrl+Tab` sang `architecture.md` — chỉnh zoom sao cho **thấy đồng thời cả 3 tiêu đề** mục 1, 2, 3 | Bôi đen lần lượt 3 tiêu đề: *"1. Kiến trúc thread-per-client"* → *"2. Namespace và an toàn đường dẫn"* → *"3. FileLockRegistry"* |
+
+Tổng: **~35 giây** nếu bỏ đoạn 2b, **~55 giây** nếu có.
+
+> ⚠️ Nếu dùng đoạn 2b thì mọi mốc thời gian trong bảng shot list ở mục 1 đều **lùi thêm 20 giây**, và tổng video thành **~7 phút 25** thay vì ~7 phút 05. Vẫn nằm trong khoảng 5–8 phút đề yêu cầu, nên không cần cắt bù ở shot nào khác — chỉ cần biết trước để lúc dựng không hoang mang khi thấy lệch so với bảng.
 
 ### Ba mẹo quan trọng
 
