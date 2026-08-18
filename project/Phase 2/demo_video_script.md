@@ -128,9 +128,13 @@ python testdata/make_testdata.py
 
 🎙️ **Lời thoại:**
 
-> Xin chào thầy cô. Nhóm em gồm ba thành viên là Cường, Bình và Hưng, xin trình bày đồ án Phase 2 — hệ thống client-server truyền file qua TCP, sử dụng một giao thức nhị phân do nhóm tự định nghĩa.
+> Xin chào thầy cô. Nhóm em gồm ba thành viên là Cường, Bình và Hưng, xin trình bày đồ án Phase 2 — hệ thống client-server truyền file qua TCP, chạy trên một giao thức tầng ứng dụng do nhóm tự thiết kế, đóng gói theo cấu trúc Length–Opcode–Payload.
 >
 > Mỗi gói tin gồm bốn phần: LENGTH bốn byte cho biết độ dài phần còn lại, OPCODE hai byte xác định loại lệnh, USER_ID hai byte để server biết ai đang gửi, và cuối cùng là PAYLOAD có độ dài thay đổi. Tất cả số nguyên đều dùng network byte order.
+
+**Câu bổ sung — tùy chọn (+~20 giây, đẩy C1 lên ~55 giây).** Nói thêm đoạn này nếu muốn giải thích *tại sao* chọn nhị phân, vì đây chính là phần "giải thích lựa chọn kỹ thuật" mà đề bài yêu cầu ở R2.2. Nếu tổng video đang sát 8 phút thì bỏ qua, nội dung này đã có đầy đủ trong báo cáo:
+
+> Nhóm em chọn dạng nhị phân thay vì giao thức văn bản, vì payload có thể là dữ liệu file bất kỳ và hoàn toàn có thể chứa byte 0x00. Nếu dùng ký tự phân tách để đánh dấu ranh giới, chỉ cần file chứa đúng ký tự đó là khung gói tin sẽ vỡ. Với cách dùng tiền tố độ dài, phía nhận biết chính xác phải đọc bao nhiêu byte nên không gặp vấn đề này.
 >
 > Về phía server, nhóm em chọn mô hình thread-per-client, giới hạn số kết nối đồng thời bằng semaphore. Mỗi username có một thư mục lưu trữ riêng, và các thao tác trên cùng một file được khoá theo cặp username và filename.
 
