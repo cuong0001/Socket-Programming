@@ -106,6 +106,3 @@ python tools/resume_demo.py
 
 Artifact định lượng nằm trong [`docs/test-results/`](docs/test-results/).
 
-## Demo
-
-Làm theo [`demo_video_script.md`](demo_video_script.md) để quay video 5–8 phút, gồm ba client truyền đồng thời, upload/download cơ bản, stress, resume sau khi ngắt giữa chừng, SHA-256, throttle, file trùng và `SERVER_BUSY`.
