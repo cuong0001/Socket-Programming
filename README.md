@@ -32,4 +32,3 @@ python -m unittest discover -s tests -t tests -v
 - [Runbook Giai đoạn 2](project/Phase%202/README.md)
 - [Mini-RFC giao thức](project/Phase%202/docs/protocol.md)
 - [Báo cáo kiến trúc và kiểm thử](project/Phase%202/docs/architecture.md)
-- [Kịch bản video demo 5–8 phút](project/Phase%202/demo_video_script.md)
