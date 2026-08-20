@@ -90,10 +90,6 @@ Artifact được lưu tại:
 - `docs/test-results/stress.csv`: 240 dòng kết quả client để xử lý bằng bảng tính.
 - `docs/test-results/throttle.csv`: ba lần đo tốc độ thực tế.
 
-## 8. Kịch bản demo
-
-File [`../demo_video_script.md`](../demo_video_script.md) chứa timeline, lời thoại và lệnh quay video 5–8 phút: ba client truyền đồng thời, namespace, stress, resume đúng offset, SHA-256, throttle, file trùng và `SERVER_BUSY`.
-
-## 9. Kết luận
+## 8. Kết luận
 
 Thiết kế sử dụng thread-per-client có giới hạn, một session cho mỗi username, thư mục riêng, lock hẹp theo file và atomic commit sau SHA-256. Các lựa chọn này đáp ứng yêu cầu concurrency mà không làm phức tạp code blocking hiện có.
