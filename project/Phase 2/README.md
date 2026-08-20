@@ -86,7 +86,7 @@ Xem [`docs/protocol.md`](docs/protocol.md) và [`docs/architecture.md`](docs/arc
 Kết quả test/stress/throttle dưới đây được đo trên commit tích hợp `f156061`. Kịch bản resume được cập nhật theo commit merge PR #31 `8eccdca`:
 
 ```text
-Full suite: 69/69 tests pass
+Full suite: 70/70 tests pass
 Stress: 240/240 client pass, 1.680 operations, 0 failure
 Resume: upload ngắt ở 37% và 73%; download ngắt ở 50%; mỗi lần reconnect đúng offset và SHA-256 OK
 Throttle: 472,42 / 471,15 / 471,55 KB/s với limit 500 KB/s
