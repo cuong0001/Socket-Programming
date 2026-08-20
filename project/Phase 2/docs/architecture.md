@@ -71,7 +71,7 @@ python -m pip install -r requirements-test.txt
 python -m unittest discover -s tests -t tests -v
 ```
 
-Nghiệm thu test/stress/throttle được chạy trên commit tích hợp `f156061` (Windows, Python 3.14 trong môi trường kiểm tra): **69/69 test pass trong 51,309 giây**. Kịch bản resume trong bảng dưới đã được cập nhật theo commit merge PR #31 `8eccdca`, bổ sung hai lần ngắt upload và một lần ngắt download.
+Nghiệm thu test/stress/throttle được chạy trên commit tích hợp `f156061` (Windows, Python 3.14 trong môi trường kiểm tra): **70/70 test pass trong 51,309 giây**. Kịch bản resume trong bảng dưới đã được cập nhật theo commit merge PR #31 `8eccdca`, bổ sung hai lần ngắt upload và một lần ngắt download.
 
 | Bằng chứng | Kịch bản | Kết quả mong đợi |
 |---|---|---|
